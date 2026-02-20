@@ -262,7 +262,7 @@ st.markdown(
 # ---------------------------
 # Controls (National vs Provider view)
 # ---------------------------
-c1, c2, c3, c4 = st.columns([1.1, 2, 2, 1.4])
+c1, c2, c3, c4, c5 = st.columns([1.1, 2, 2, 1.4, 2.2])
 
 with c1:
     view = st.radio("", ["National SPC charts view", "Provider SPC charts view"], index=0)
