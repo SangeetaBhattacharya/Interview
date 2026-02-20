@@ -205,6 +205,67 @@ def build_spc_figure(df, mean, ucl, lcl, show_ann=True, show_run=True):
     )
     return fig, df
 
+def build_cusum_figure(df, target=None, k=0.5):
+    """
+    Two-sided CUSUM on deviations from a target (default: mean of selected period).
+
+    target: reference value to detect shifts from (float). If None, uses df['Rate'].mean().
+    k: reference value (in same units as Rate). Larger k => less sensitive.
+
+    Returns: plotly Figure, dataframe with CUSUM columns
+    """
+    dfx = df.copy()
+
+    if target is None:
+        target = float(dfx["Rate"].mean())
+
+    # Deviations from target
+    dev = dfx["Rate"] - target
+
+    # Two-sided CUSUM
+    cplus = [0.0]
+    cminus = [0.0]
+    for i in range(1, len(dev) + 1):
+        x = float(dev.iloc[i-1])
+        cplus.append(max(0.0, cplus[-1] + x - k))
+        cminus.append(min(0.0, cminus[-1] + x + k))
+
+    # Drop initial seed
+    dfx["CUSUM+"] = cplus[1:]
+    dfx["CUSUM-"] = cminus[1:]
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=dfx["Month"], y=dfx["CUSUM+"],
+        mode="lines+markers", name="CUSUM+",
+        line=dict(color=NHS_BLUE, width=2),
+        marker=dict(size=6),
+        hovertemplate="%{x|%b %Y}<br>CUSUM+: %{y:.2f}<extra></extra>"
+    ))
+    fig.add_trace(go.Scatter(
+        x=dfx["Month"], y=dfx["CUSUM-"],
+        mode="lines+markers", name="CUSUM-",
+        line=dict(color=BAD, width=2),
+        marker=dict(size=6),
+        hovertemplate="%{x|%b %Y}<br>CUSUM-: %{y:.2f}<extra></extra>"
+    ))
+
+    fig.add_hline(y=0, line_color="#111827", line_width=1)
+
+    fig.update_layout(
+        height=520,
+        margin=dict(l=20, r=20, t=10, b=10),
+        xaxis_title=None, yaxis_title=None,
+        plot_bgcolor="white", paper_bgcolor="white",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        font=dict(family="Inter, Arial")
+    )
+
+    return fig, dfx, target
+
+
+
 # ---------------------------
 # Header with NHS logo
 # ---------------------------
@@ -363,8 +424,27 @@ kpi_html = f"""
 st.markdown(kpi_html, unsafe_allow_html=True)
 
 # Chart
-st.plotly_chart(fig, use_container_width=True)
+# Tabs: SPC vs CUSUM
+tab_spc, tab_cusum = st.tabs(["SPC Chart", "CUSUM Chart"])
 
+with tab_spc:
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab_cusum:
+    st.caption(
+        "CUSUM (cumulative sum) highlights small persistent shifts by accumulating deviation from a target. "
+        "CUSUM+ accumulates sustained increases; CUSUM- accumulates sustained decreases."
+    )
+
+    # Optional sensitivity control for interview/demo
+    k = st.slider("CUSUM sensitivity (k)", min_value=0.0, max_value=3.0, value=0.5, step=0.1)
+
+    fig_cusum, df_cusum, target_used = build_cusum_figure(df, target=mean, k=k)
+
+    # Show target for transparency
+    st.markdown(f"**Target (reference):** {target_used:.2f} (using period mean)")
+
+    st.plotly_chart(fig_cusum, use_container_width=True)
 # ---------------------------
 # Export chart as JPEG (download)
 # ---------------------------
