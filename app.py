@@ -68,7 +68,9 @@ st.markdown(
       }}
       .help a {{
         display:inline-flex; align-items:center; gap:8px;
-        padding: 8px 10px; border-radius: 999px;
+        padding: 8px 10px; border-radius: 999px;# Controls (National vs Provider view)
+# Controls (National vs Provider view) + date range
+c1, c2, c3, c4, c5 = st.columns([1.1, 2, 2, 1.4, 2.2])
         border: 1px solid {NHS_BLUE}; color: {NHS_BLUE};
         font-weight: 800; font-size: 13px; text-decoration:none;
         background: white; margin-left: 8px;
@@ -88,6 +90,11 @@ st.markdown(
     </style>
     """,
     unsafe_allow_html=True,
+)
+
+st.info(
+    "Run-of-8 signal: If 8 consecutive data points fall above or below the mean, "
+    "this indicates a sustained shift unlikely due to random variation (special cause)."
 )
 
 # ---------------------------
@@ -287,6 +294,12 @@ with c3:
 with c4:
     show_ann = st.checkbox("Show Mean/UCL/LCL", value=True)
     show_run = st.checkbox("Highlight run-of-8", value=True)
+    st.caption("Run-of-8 signal: 8 consecutive points above or below the mean suggests a non-random shift (special cause).")
+
+with c5:
+    # Calendar pickers (we'll treat selected dates as Month/Year and normalise to month start)
+    start_date = st.date_input("Start date", value=pd.Timestamp("2024-01-01").date())
+    end_date   = st.date_input("End date", value=pd.Timestamp("2025-10-01").date())
 
 # Help links toolbar
 st.markdown(
@@ -305,12 +318,31 @@ st.markdown(
 # ---------------------------
 # Build chart + KPIs
 # ---------------------------
+# Build chart + KPIs
 v = "National" if view.startswith("National") else "Provider"
 df = generate_series(view=v, indicator=indicator, provider=provider)
+
+# Normalise selected dates to the first day of their month (month/year behaviour)
+start_m = pd.Timestamp(start_date).to_period("M").to_timestamp()
+end_m   = pd.Timestamp(end_date).to_period("M").to_timestamp()
+
+# Guard: ensure start <= end
+if start_m > end_m:
+    st.error("Start date must be earlier than or equal to End date.")
+    st.stop()
+
+# Filter to selected month range
+df = df[(df["Month"] >= start_m) & (df["Month"] <= end_m)].copy()
+
+# Guard: avoid empty selection
+if df.empty:
+    st.warning("No data available for the selected date range.")
+    st.stop()
+
 mean, ucl, lcl = spc_limits(df)
 fig, df_flagged = build_spc_figure(df, mean, ucl, lcl, show_ann=show_ann, show_run=show_run)
 
-current_month = df_flagged["Month"].iloc[-1].strftime("%b %Y")
+series_label = f"{df_flagged['Month'].iloc[0].strftime('%b %Y')} – {df_flagged['Month'].iloc[-1].strftime('%b %Y')}"
 current_rate = float(df_flagged["Rate"].iloc[-1])
 any_special = bool(df_flagged["SpecialCause"].any())
 current_special = bool(df_flagged["SpecialCause"].iloc[-1])
@@ -318,7 +350,7 @@ current_special = bool(df_flagged["SpecialCause"].iloc[-1])
 # KPI strip
 kpi_html = f"""
 <div class="kpis">
-  <div class="kpi"><p class="lab">Current month</p><p class="val">{current_month}</p><p class="sm">Selected series</p></div>
+  <div class="kpi"><p class="lab">Current series</p><p class="val">{series_label}</p><p class="sm">Selected date range</p></div>
   <div class="kpi"><p class="lab">Current rate</p><p class="val">{current_rate:.2f}</p><p class="sm">Latest data point</p></div>
   <div class="kpi"><p class="lab">Mean</p><p class="val">{mean:.2f}</p><p class="sm">Centre line</p></div>
   <div class="kpi"><p class="lab">UCL / LCL</p><p class="val">{ucl:.2f} / {lcl:.2f}</p><p class="sm">±3σ limits</p></div>
