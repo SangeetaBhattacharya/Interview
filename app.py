@@ -402,6 +402,7 @@ df = generate_series(view=v, indicator=indicator, provider=provider)
 # Normalise selected dates to the first day of their month (month/year behaviour)
 start_m = pd.Timestamp(start_date).to_period("M").to_timestamp()
 end_m   = pd.Timestamp(end_date).to_period("M").to_timestamp()
+series_label = f"{start_m.strftime('%b %Y')} – {end_m.strftime('%b %Y')}"
 
 # Guard: ensure start <= end
 if start_m > end_m:
