@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+import plotly.express as px
+import scipy.stats as stats
 
 # ---------------------------
 # NHS theme
@@ -280,7 +282,60 @@ def build_cusum_figure(df, target=None, k=0.5):
 
     return fig, dfx, target
 
+def build_distribution_diagnostics(df, title_prefix=""):
+    """Returns (hist_fig, box_fig, stats_dict) for diagnostic assessment."""
+    series = df["Rate"].dropna()
 
+    # Summary stats
+    s = series.astype(float)
+    stats_dict = {
+        "n": int(s.shape[0]),
+        "mean": float(s.mean()),
+        "sd": float(s.std(ddof=1)) if s.shape[0] > 1 else 0.0,
+        "min": float(s.min()),
+        "max": float(s.max()),
+        "skew": float(stats.skew(s)) if s.shape[0] > 2 else 0.0,
+    }
+
+    # Histogram
+    hist_fig = px.histogram(
+        df, x="Rate", nbins=12, opacity=0.85,
+        title=f"{title_prefix}Distribution (Histogram)"
+    )
+    hist_fig.update_layout(
+        height=320,
+        margin=dict(l=10, r=10, t=40, b=10),
+        plot_bgcolor="white", paper_bgcolor="white",
+        xaxis_title=None, yaxis_title=None,
+        showlegend=False
+    )
+
+    # Optional normal curve overlay (quick “is it roughly normal?” cue)
+    if stats_dict["sd"] > 0:
+        xs = np.linspace(stats_dict["min"], stats_dict["max"], 200)
+        ys = stats.norm.pdf(xs, loc=stats_dict["mean"], scale=stats_dict["sd"])
+        # Scale pdf to histogram height (approx) for visual overlay
+        ys_scaled = ys / ys.max() * (series.shape[0] / 4)
+
+        hist_fig.add_trace(go.Scatter(
+            x=xs, y=ys_scaled,
+            mode="lines",
+            name="Normal curve (reference)",
+            line=dict(color="#111827", width=2),
+            hoverinfo="skip"
+        ))
+
+    # Box plot
+    box_fig = px.box(df, y="Rate", points="outliers", title=f"{title_prefix}Spread (Box plot)")
+    box_fig.update_layout(
+        height=320,
+        margin=dict(l=10, r=10, t=40, b=10),
+        plot_bgcolor="white", paper_bgcolor="white",
+        xaxis_title=None, yaxis_title=None,
+        showlegend=False
+    )
+
+    return hist_fig, box_fig, stats_dict
 
 # ---------------------------
 # Header with NHS logo
@@ -375,8 +430,8 @@ with c4:
 
 with c5:
     # Calendar pickers (we'll treat selected dates as Month/Year and normalise to month start)
-    start_date = st.date_input("Start date", value=pd.Timestamp("2024-01-01").date())
-    end_date   = st.date_input("End date", value=pd.Timestamp("2025-10-01").date())
+    start_date = st.date_input("Start date", value=min_d, min_value=min_d, max_value=max_d, key="start_date")
+    end_date   = st.date_input("End date",   value=max_d, min_value=min_d, max_value=max_d, key="end_date")
 
 # Help links toolbar
 st.markdown(
@@ -398,6 +453,11 @@ st.markdown(
 # Build chart + KPIs
 v = "National" if view.startswith("National") else "Provider"
 df = generate_series(view=v, indicator=indicator, provider=provider)
+min_d = df["Month"].min().date()
+max_d = df["Month"].max().date()
+
+start_date = st.date_input("Start date", value=min_d, min_value=min_d, max_value=max_d, key="start_date")
+end_date   = st.date_input("End date",   value=max_d, min_value=min_d, max_value=max_d, key="end_date")
 
 # Normalise selected dates to the first day of their month (month/year behaviour)
 start_m = pd.Timestamp(start_date).to_period("M").to_timestamp()
@@ -442,7 +502,7 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 
 # Chart
 # Tabs: SPC vs CUSUM
-tab_spc, tab_cusum = st.tabs(["SPC Chart", "CUSUM Chart"])
+tab_spc, tab_cusum, tab_diag = st.tabs(["SPC Chart", "CUSUM Chart", "Diagnostics"])
 
 with tab_spc:
     st.plotly_chart(fig, use_container_width=True)
@@ -474,6 +534,39 @@ with tab_cusum:
     st.markdown(f"**Target (reference):** {target_used:.2f} (using period mean)")
 
     st.plotly_chart(fig_cusum, use_container_width=True)
+
+with tab_diag:
+    st.markdown("### Distribution diagnostics")
+
+    st.info(
+        "Diagnostics help you understand whether outliers or distribution shape may be affecting the SPC limits."
+    )
+
+    st.caption(
+    "Diagnostics help you understand whether outliers or distribution shape may be affecting the SPC limits."
+    )
+
+    hist_fig, box_fig, s = build_distribution_diagnostics(
+        df, title_prefix=""
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.plotly_chart(hist_fig, use_container_width=True)
+    with col2:
+        st.plotly_chart(box_fig, use_container_width=True)
+
+    st.markdown("### Summary statistics (selected date range)")
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1.metric("n", f"{s['n']}")
+    m2.metric("Mean", f"{s['mean']:.2f}")
+    m3.metric("SD", f"{s['sd']:.2f}")
+    m4.metric("Min", f"{s['min']:.2f}")
+    m5.metric("Max", f"{s['max']:.2f}")
+    m6.metric("Skew", f"{s['skew']:.2f}")
+
+    st.caption("Tip: Strong skew or extreme outliers may inflate SD and widen control limits.")
+
 # ---------------------------
 # Export chart as JPEG (download)
 # ---------------------------
