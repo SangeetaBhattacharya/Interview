@@ -449,12 +449,24 @@ with tab_spc:
 
 with tab_cusum:
     st.caption(
-        "CUSUM (cumulative sum) highlights small persistent shifts by accumulating deviation from a target. "
-        "CUSUM+ accumulates sustained increases; CUSUM- accumulates sustained decreases."
-    )
+    "Adjust sensitivity to control how quickly the chart flags change. "
+    "A lower setting detects small sustained shifts earlier, while a higher setting highlights only larger movements."
+)
 
     # Optional sensitivity control for interview/demo
-    k = st.slider("CUSUM sensitivity (k)", min_value=0.0, max_value=3.0, value=0.5, step=0.1)
+    sigma = df["Rate"].std()
+    k = st.slider(
+        "CUSUM sensitivity (σ units)",
+        0.0,
+        2.0,
+        0.5,
+        0.1,
+        help="Controls how quickly the chart reacts to change. Lower values detect smaller gradual shifts sooner, while higher values highlight only larger changes."
+    )
+    st.caption("Sensitivity (k) is typically set to half the shift size (in standard deviations) you wish to detect; e.g., k = 0.5σ helps detect sustained ~1σ changes.")
+    k_actual = k * sigma
+
+    build_cusum_figure(df, target=mean, k=k_actual)
 
     fig_cusum, df_cusum, target_used = build_cusum_figure(df, target=mean, k=k)
 
