@@ -158,6 +158,22 @@ def build_spc_figure(df, mean, ucl, lcl, show_ann=True, show_run=True):
 
     fig = go.Figure()
 
+    # ---------------------------
+    # Shaded SPC control zones (±1σ, ±2σ, ±3σ)
+    # ---------------------------
+    sigma = (ucl - mean) / 3.0
+
+    z1_low, z1_high = mean - 1*sigma, mean + 1*sigma
+    z2_low, z2_high = mean - 2*sigma, mean + 2*sigma
+    z3_low, z3_high = mean - 3*sigma, mean + 3*sigma  # should match lcl/ucl
+
+    # Use very light NHS-blue shading (subtle, doesn't overpower points/lines)
+    fig.add_hrect(y0=z3_low, y1=z2_low, fillcolor=NHS_BLUE, opacity=0.04, line_width=0)
+    fig.add_hrect(y0=z2_low, y1=z1_low, fillcolor=NHS_BLUE, opacity=0.06, line_width=0)
+    fig.add_hrect(y0=z1_low, y1=z1_high, fillcolor=NHS_BLUE, opacity=0.08, line_width=0)
+    fig.add_hrect(y0=z1_high, y1=z2_high, fillcolor=NHS_BLUE, opacity=0.06, line_width=0)
+    fig.add_hrect(y0=z2_high, y1=z3_high, fillcolor=NHS_BLUE, opacity=0.04, line_width=0)
+
     fig.add_trace(go.Scatter(
         x=in_control["Month"], y=in_control["Rate"],
         mode="lines+markers",
