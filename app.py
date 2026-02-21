@@ -1,4 +1,3 @@
-import io
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -22,6 +21,9 @@ NHS_LOGO_URL = "https://www.england.nhs.uk/wp-content/themes/nhsengland/static/i
 
 st.set_page_config(page_title="SPC charts", layout="wide")
 
+# ---------------------------
+# CSS (clean)
+# ---------------------------
 st.markdown(
     f"""
     <style>
@@ -70,9 +72,7 @@ st.markdown(
       }}
       .help a {{
         display:inline-flex; align-items:center; gap:8px;
-        padding: 8px 10px; border-radius: 999px;# Controls (National vs Provider view)
-# Controls (National vs Provider view) + date range
-c1, c2, c3, c4, c5 = st.columns([1.1, 2, 2, 1.4, 2.2])
+        padding: 8px 10px; border-radius: 999px;
         border: 1px solid {NHS_BLUE}; color: {NHS_BLUE};
         font-weight: 800; font-size: 13px; text-decoration:none;
         background: white; margin-left: 8px;
@@ -94,17 +94,14 @@ c1, c2, c3, c4, c5 = st.columns([1.1, 2, 2, 1.4, 2.2])
     unsafe_allow_html=True,
 )
 
-st.info(
-    "Run-of-8 signal: If 8 consecutive data points fall above or below the mean, "
-    "this indicates a sustained shift unlikely due to random variation (special cause)."
-)
-
 # ---------------------------
 # Mock SPC data + rules
 # ---------------------------
 np.random.seed(12)
 
-def generate_series(view="National", indicator="Babies who were born preterm (Rate per 1,000)", provider="Airedale NHS Foundation Trust"):
+def generate_series(view="National",
+                    indicator="Babies who were born preterm (Rate per 1,000)",
+                    provider="Airedale NHS Foundation Trust"):
     months = pd.date_range("2024-01-01", "2025-10-01", freq="MS")
     n = len(months)
 
@@ -116,21 +113,24 @@ def generate_series(view="National", indicator="Babies who were born preterm (Ra
     values = np.zeros(n)
     values[0] = base + noise[0]
     for i in range(1, n):
-        values[i] = 0.65*values[i-1] + 0.35*(base + noise[i])
+        values[i] = 0.65 * values[i - 1] + 0.35 * (base + noise[i])
 
     # Inject special-cause patterns
-    values[11] += 6.0  # ~Dec 2024 spike
-    if view != "National":
+    if n > 11:
+        values[11] += 6.0  # ~Dec 2024 spike
+    if view != "National" and n > 18:
         values[18] -= 5.0
 
     return pd.DataFrame({"Month": months, "Rate": values})
 
+
 def spc_limits(df):
     mean = df["Rate"].mean()
     sd = df["Rate"].std(ddof=1)
-    ucl = mean + 3*sd
-    lcl = mean - 3*sd
+    ucl = mean + 3 * sd
+    lcl = mean - 3 * sd
     return mean, ucl, lcl
+
 
 def rule_flags(df, mean, ucl, lcl):
     df = df.copy()
@@ -152,6 +152,7 @@ def rule_flags(df, mean, ucl, lcl):
     df["SpecialCause"] = df["Outside"] | df["Run8"]
     return df
 
+
 def build_spc_figure(df, mean, ucl, lcl, show_ann=True, show_run=True):
     df = rule_flags(df, mean, ucl, lcl)
     in_control = df[~df["SpecialCause"]]
@@ -160,16 +161,12 @@ def build_spc_figure(df, mean, ucl, lcl, show_ann=True, show_run=True):
 
     fig = go.Figure()
 
-    # ---------------------------
-    # Shaded SPC control zones (±1σ, ±2σ, ±3σ)
-    # ---------------------------
-    sigma = (ucl - mean) / 3.0
-
+    # Shaded control zones
+    sigma = (ucl - mean) / 3.0 if np.isfinite(ucl) and np.isfinite(mean) else 0.0
     z1_low, z1_high = mean - 1*sigma, mean + 1*sigma
     z2_low, z2_high = mean - 2*sigma, mean + 2*sigma
-    z3_low, z3_high = mean - 3*sigma, mean + 3*sigma  # should match lcl/ucl
+    z3_low, z3_high = mean - 3*sigma, mean + 3*sigma
 
-    # Use very light NHS-blue shading (subtle, doesn't overpower points/lines)
     fig.add_hrect(y0=z3_low, y1=z2_low, fillcolor=NHS_BLUE, opacity=0.04, line_width=0)
     fig.add_hrect(y0=z2_low, y1=z1_low, fillcolor=NHS_BLUE, opacity=0.06, line_width=0)
     fig.add_hrect(y0=z1_low, y1=z1_high, fillcolor=NHS_BLUE, opacity=0.08, line_width=0)
@@ -185,7 +182,7 @@ def build_spc_figure(df, mean, ucl, lcl, show_ann=True, show_run=True):
         hovertemplate="%{x|%b %Y}<br>Rate: %{y:.2f}<extra></extra>"
     ))
 
-    if len(special) > 0:
+    if not special.empty:
         fig.add_trace(go.Scatter(
             x=special["Month"], y=special["Rate"],
             mode="markers",
@@ -194,7 +191,7 @@ def build_spc_figure(df, mean, ucl, lcl, show_ann=True, show_run=True):
             hovertemplate="%{x|%b %Y}<br><b>Special cause</b><br>Rate: %{y:.2f}<extra></extra>"
         ))
 
-    if show_run and len(run_only) > 0:
+    if show_run and (not run_only.empty):
         fig.add_trace(go.Scatter(
             x=run_only["Month"], y=run_only["Rate"],
             mode="markers",
@@ -223,37 +220,25 @@ def build_spc_figure(df, mean, ucl, lcl, show_ann=True, show_run=True):
     )
     return fig, df
 
+
 def build_cusum_figure(df, target=None, k=0.5):
-    """
-    Two-sided CUSUM on deviations from a target (default: mean of selected period).
-
-    target: reference value to detect shifts from (float). If None, uses df['Rate'].mean().
-    k: reference value (in same units as Rate). Larger k => less sensitive.
-
-    Returns: plotly Figure, dataframe with CUSUM columns
-    """
     dfx = df.copy()
-
     if target is None:
         target = float(dfx["Rate"].mean())
 
-    # Deviations from target
     dev = dfx["Rate"] - target
 
-    # Two-sided CUSUM
     cplus = [0.0]
     cminus = [0.0]
     for i in range(1, len(dev) + 1):
-        x = float(dev.iloc[i-1])
+        x = float(dev.iloc[i - 1])
         cplus.append(max(0.0, cplus[-1] + x - k))
         cminus.append(min(0.0, cminus[-1] + x + k))
 
-    # Drop initial seed
     dfx["CUSUM+"] = cplus[1:]
     dfx["CUSUM-"] = cminus[1:]
 
     fig = go.Figure()
-
     fig.add_trace(go.Scatter(
         x=dfx["Month"], y=dfx["CUSUM+"],
         mode="lines+markers", name="CUSUM+",
@@ -268,7 +253,6 @@ def build_cusum_figure(df, target=None, k=0.5):
         marker=dict(size=6),
         hovertemplate="%{x|%b %Y}<br>CUSUM-: %{y:.2f}<extra></extra>"
     ))
-
     fig.add_hline(y=0, line_color="#111827", line_width=1)
 
     fig.update_layout(
@@ -279,29 +263,22 @@ def build_cusum_figure(df, target=None, k=0.5):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         font=dict(family="Inter, Arial")
     )
-
     return fig, dfx, target
 
-def build_distribution_diagnostics(df, title_prefix=""):
-    """Returns (hist_fig, box_fig, stats_dict) for diagnostic assessment."""
-    series = df["Rate"].dropna()
 
-    # Summary stats
-    s = series.astype(float)
+def build_distribution_diagnostics(df):
+    series = df["Rate"].dropna().astype(float)
+
     stats_dict = {
-        "n": int(s.shape[0]),
-        "mean": float(s.mean()),
-        "sd": float(s.std(ddof=1)) if s.shape[0] > 1 else 0.0,
-        "min": float(s.min()),
-        "max": float(s.max()),
-        "skew": float(stats.skew(s)) if s.shape[0] > 2 else 0.0,
+        "n": int(series.shape[0]),
+        "mean": float(series.mean()),
+        "sd": float(series.std(ddof=1)) if series.shape[0] > 1 else 0.0,
+        "min": float(series.min()),
+        "max": float(series.max()),
+        "skew": float(stats.skew(series)) if series.shape[0] > 2 else 0.0,
     }
 
-    # Histogram
-    hist_fig = px.histogram(
-        df, x="Rate", nbins=12, opacity=0.85,
-        title=f"{title_prefix}Distribution (Histogram)"
-    )
+    hist_fig = px.histogram(df, x="Rate", nbins=12, opacity=0.85, title="Distribution (Histogram)")
     hist_fig.update_layout(
         height=320,
         margin=dict(l=10, r=10, t=40, b=10),
@@ -310,13 +287,10 @@ def build_distribution_diagnostics(df, title_prefix=""):
         showlegend=False
     )
 
-    # Optional normal curve overlay (quick “is it roughly normal?” cue)
     if stats_dict["sd"] > 0:
         xs = np.linspace(stats_dict["min"], stats_dict["max"], 200)
         ys = stats.norm.pdf(xs, loc=stats_dict["mean"], scale=stats_dict["sd"])
-        # Scale pdf to histogram height (approx) for visual overlay
         ys_scaled = ys / ys.max() * (series.shape[0] / 4)
-
         hist_fig.add_trace(go.Scatter(
             x=xs, y=ys_scaled,
             mode="lines",
@@ -325,8 +299,7 @@ def build_distribution_diagnostics(df, title_prefix=""):
             hoverinfo="skip"
         ))
 
-    # Box plot
-    box_fig = px.box(df, y="Rate", points="outliers", title=f"{title_prefix}Spread (Box plot)")
+    box_fig = px.box(df, y="Rate", points="outliers", title="Spread (Box plot)")
     box_fig.update_layout(
         height=320,
         margin=dict(l=10, r=10, t=40, b=10),
@@ -337,26 +310,77 @@ def build_distribution_diagnostics(df, title_prefix=""):
 
     return hist_fig, box_fig, stats_dict
 
+
+# ===============================
+# Dynamic Interpretation Helpers
+# ===============================
+def _fmt_month(ts) -> str:
+    return pd.Timestamp(ts).strftime("%b %Y")
+
+
+def spc_summary_text(df_flagged: pd.DataFrame, mean: float, ucl: float, lcl: float) -> str:
+    if df_flagged.empty:
+        return "SPC: No data in the selected period."
+
+    special_n = int(df_flagged["SpecialCause"].sum()) if "SpecialCause" in df_flagged else 0
+    outside_n = int(df_flagged["Outside"].sum()) if "Outside" in df_flagged else 0
+    run8_n = int(df_flagged["Run8"].sum()) if "Run8" in df_flagged else 0
+
+    latest_month = _fmt_month(df_flagged["Month"].iloc[-1])
+    latest_val = float(df_flagged["Rate"].iloc[-1])
+
+    if special_n == 0:
+        return f"SPC: No special-cause signals in the selected period. Latest ({latest_month}) = {latest_val:.2f}."
+
+    parts = [f"SPC: {special_n} signal month(s) flagged"]
+    if outside_n:
+        parts.append(f"{outside_n} outside limits")
+    if run8_n:
+        parts.append(f"{run8_n} run-of-8 point(s)")
+    return f"{'; '.join(parts)}. Latest ({latest_month}) = {latest_val:.2f}."
+
+
+def cusum_summary_text(df_cusum: pd.DataFrame) -> str:
+    if df_cusum.empty or "CUSUM+" not in df_cusum or "CUSUM-" not in df_cusum:
+        return "CUSUM: Not available for the selected period."
+
+    max_plus = float(df_cusum["CUSUM+"].max())
+    min_minus = float(df_cusum["CUSUM-"].min())
+
+    if max_plus < 1e-6 and abs(min_minus) < 1e-6:
+        return "CUSUM: No accumulated shift detected."
+
+    if max_plus >= abs(min_minus):
+        return f"CUSUM: Upward accumulation detected (peak {max_plus:.2f})."
+    return f"CUSUM: Downward accumulation detected (trough {min_minus:.2f})."
+
+
+def diagnostics_summary_text(stats_dict: dict) -> str:
+    n = int(stats_dict.get("n", 0))
+    if n == 0:
+        return "Diagnostics: No data in the selected period."
+
+    skew = float(stats_dict.get("skew", 0.0))
+    if abs(skew) < 0.5:
+        return "Diagnostics: Distribution is approximately balanced."
+    if skew > 0:
+        return "Diagnostics: Distribution is right-skewed (some higher values)."
+    return "Diagnostics: Distribution is left-skewed (some lower values)."
+
+
 # ---------------------------
-# Header with NHS logo
+# Header + context
 # ---------------------------
 st.markdown(
     f"""
     <div class="nhs-header">
-      <div>
-        <p class="nhs-title">Statistical Process Control (SPC) charts</p>
-      </div>
-      <div>
-        <img src="{NHS_LOGO_URL}" alt="NHS logo" style="height:42px;">
-      </div>
+      <div><p class="nhs-title">Statistical Process Control (SPC) charts</p></div>
+      <div><img src="{NHS_LOGO_URL}" alt="NHS logo" style="height:42px;"></div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-# ---------------------------
-# Tab context (overall dashboard)
-# ---------------------------
 st.markdown(
     """
     <div class="tabbar">
@@ -376,9 +400,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ---------------------------
-# Page description ("why used") + Guidance link placeholder
-# ---------------------------
 st.markdown(
     """
     <div class="nhs-desc">
@@ -391,10 +412,15 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+st.info(
+    "Run-of-8 signal: If 8 consecutive data points fall above or below the mean, "
+    "this indicates a sustained shift unlikely due to random variation (special cause)."
+)
+
 # ---------------------------
-# Controls (National vs Provider view)
+# Controls
 # ---------------------------
-c1, c2, c3, c4, c5 = st.columns([1.1, 2, 2, 1.4, 2.2])
+c1, c2, c3, c4 = st.columns([1.1, 2, 2, 1.4])
 
 with c1:
     view = st.radio("", ["National SPC charts view", "Provider SPC charts view"], index=0)
@@ -403,21 +429,33 @@ with c2:
     indicator = st.selectbox(
         "Select indicator",
         [
+            "Babies readmitted to hospital who were under 30 days old (Percent)",
+            "Babies that were fully or partially breastfed at 6 to 8 weeks old (Percent)",
             "Babies who were born preterm (Rate per 1,000)",
-            "Smoking at time of delivery (Rate per 100)",
-            "Apgar <7 at 5 minutes (Rate per 1,000)"
+            "Babies with a first feed of breast milk (Percent)",
+            "Babies with an APGAR score between 0 and 6 (Rate per 1,000)",
+            "Caesarean section rate for Robson Group 1 women (Percent)",
+            "Caesarean section rate for Robson Group 2 women (Percent)",
+            "Caesarean section rate for Robson Group 5 women (Percent)",
+            "Women who had a 3rd or 4th degree tear at delivery (Rate per 1,000)",
+            "Women who had a PPH of 1,500ml or more (Rate per 1,000)"
         ],
-        index=0,
+        index=2
     )
 
 with c3:
     provider = st.selectbox(
         "Select provider",
         [
-            "Airedale NHS Foundation Trust",
-            "Bradford Teaching Hospitals NHS Foundation Trust",
-            "Leeds Teaching Hospitals NHS Trust",
-            "York and Scarborough Teaching Hospitals NHS Foundation Trust"
+            "Airedale NHS Foundation Trust (RCF)",
+            "Ashford and St Peter's Hospitals NHS Foundation Trust (RTK)",
+            "Barking, Havering and Redbridge University Hospitals NHS Trust (RF4)",
+            "Barnsley Hospital NHS Foundation Trust (RFF)",
+            "Barts Health NHS Trust (R1H)",
+            "Basildon and Thurrock University Hospitals NHS Foundation Trust (RDD)",
+            "Bedford Hospital NHS Trust (RC1)",
+            "Bedfordshire Hospitals NHS Foundation Trust (RC9)",
+            "Birmingham Women's and Children's NHS Foundation Trust (RQ3)"
         ],
         index=0,
         disabled=view.startswith("National")
@@ -426,14 +464,21 @@ with c3:
 with c4:
     show_ann = st.checkbox("Show Mean/UCL/LCL", value=True)
     show_run = st.checkbox("Highlight run-of-8", value=True)
-    st.caption("Run-of-8 signal: 8 consecutive points above or below the mean suggests a non-random shift (special cause).")
 
-with c5:
-    # Calendar pickers (we'll treat selected dates as Month/Year and normalise to month start)
+# Generate full data (for bounds + filtering)
+v = "National" if view.startswith("National") else "Provider"
+df_full = generate_series(view=v, indicator=indicator, provider=provider)
+
+min_d = df_full["Month"].min().date()
+max_d = df_full["Month"].max().date()
+
+d1, d2 = st.columns(2)
+with d1:
     start_date = st.date_input("Start date", value=min_d, min_value=min_d, max_value=max_d, key="start_date")
-    end_date   = st.date_input("End date",   value=max_d, min_value=min_d, max_value=max_d, key="end_date")
+with d2:
+    end_date = st.date_input("End date", value=max_d, min_value=min_d, max_value=max_d, key="end_date")
 
-# Help links toolbar
+# Toolbar (help links)
 st.markdown(
     f"""
     <div class="toolbar">
@@ -448,44 +493,31 @@ st.markdown(
 )
 
 # ---------------------------
-# Build chart + KPIs
+# Filter by selected date range (month/year behaviour)
 # ---------------------------
-# Build chart + KPIs
-v = "National" if view.startswith("National") else "Provider"
-df = generate_series(view=v, indicator=indicator, provider=provider)
-min_d = df["Month"].min().date()
-max_d = df["Month"].max().date()
-
-start_date = st.date_input("Start date", value=min_d, min_value=min_d, max_value=max_d, key="start_date")
-end_date   = st.date_input("End date",   value=max_d, min_value=min_d, max_value=max_d, key="end_date")
-
-# Normalise selected dates to the first day of their month (month/year behaviour)
 start_m = pd.Timestamp(start_date).to_period("M").to_timestamp()
-end_m   = pd.Timestamp(end_date).to_period("M").to_timestamp()
-series_label = f"{start_m.strftime('%b %Y')} – {end_m.strftime('%b %Y')}"
+end_m = pd.Timestamp(end_date).to_period("M").to_timestamp()
 
-# Guard: ensure start <= end
 if start_m > end_m:
     st.error("Start date must be earlier than or equal to End date.")
     st.stop()
 
-# Filter to selected month range
-df = df[(df["Month"] >= start_m) & (df["Month"] <= end_m)].copy()
+series_label = f"{start_m.strftime('%b %Y')} – {end_m.strftime('%b %Y')}"
 
-# Guard: avoid empty selection
+df = df_full[(df_full["Month"] >= start_m) & (df_full["Month"] <= end_m)].copy()
 if df.empty:
     st.warning("No data available for the selected date range.")
     st.stop()
 
+# Build SPC
 mean, ucl, lcl = spc_limits(df)
-fig, df_flagged = build_spc_figure(df, mean, ucl, lcl, show_ann=show_ann, show_run=show_run)
+fig_spc, df_flagged = build_spc_figure(df, mean, ucl, lcl, show_ann=show_ann, show_run=show_run)
 
-series_label = f"{df_flagged['Month'].iloc[0].strftime('%b %Y')} – {df_flagged['Month'].iloc[-1].strftime('%b %Y')}"
 current_rate = float(df_flagged["Rate"].iloc[-1])
 any_special = bool(df_flagged["SpecialCause"].any())
 current_special = bool(df_flagged["SpecialCause"].iloc[-1])
 
-# KPI strip
+# KPI strip (Current series reflects selected start/end)
 kpi_html = f"""
 <div class="kpis">
   <div class="kpi"><p class="lab">Current series</p><p class="val">{series_label}</p><p class="sm">Selected date range</p></div>
@@ -500,55 +532,38 @@ kpi_html = f"""
 """
 st.markdown(kpi_html, unsafe_allow_html=True)
 
-# Chart
-# Tabs: SPC vs CUSUM
+# ---------------------------
+# Tabs: SPC / CUSUM / Diagnostics
+# ---------------------------
 tab_spc, tab_cusum, tab_diag = st.tabs(["SPC Chart", "CUSUM Chart", "Diagnostics"])
 
 with tab_spc:
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig_spc, use_container_width=True)
+    st.info(spc_summary_text(df_flagged, mean, ucl, lcl))
 
 with tab_cusum:
-    st.caption(
-    "Adjust sensitivity to control how quickly the chart flags change. "
-    "A lower setting detects small sustained shifts earlier, while a higher setting highlights only larger movements."
-)
+    sigma = float(df["Rate"].std(ddof=1)) if len(df) > 1 else 0.0
+    if not np.isfinite(sigma):
+        sigma = 0.0
 
-    # Optional sensitivity control for interview/demo
-    sigma = df["Rate"].std()
     k = st.slider(
         "CUSUM sensitivity (σ units)",
-        0.0,
-        2.0,
-        0.5,
-        0.1,
+        0.0, 2.0, 0.5, 0.1,
         help="Controls how quickly the chart reacts to change. Lower values detect smaller gradual shifts sooner, while higher values highlight only larger changes."
     )
-    st.caption("Sensitivity (k) is typically set to half the shift size (in standard deviations) you wish to detect; e.g., k = 0.5σ helps detect sustained ~1σ changes.")
+
     k_actual = k * sigma
+    fig_cusum, df_cusum, target_used = build_cusum_figure(df, target=mean, k=k_actual)
 
-    build_cusum_figure(df, target=mean, k=k_actual)
-
-    fig_cusum, df_cusum, target_used = build_cusum_figure(df, target=mean, k=k)
-
-    # Show target for transparency
     st.markdown(f"**Target (reference):** {target_used:.2f} (using period mean)")
-
     st.plotly_chart(fig_cusum, use_container_width=True)
+    st.info(cusum_summary_text(df_cusum))
 
 with tab_diag:
     st.markdown("### Distribution diagnostics")
+    hist_fig, box_fig, s = build_distribution_diagnostics(df)
 
-    st.info(
-        "Diagnostics help you understand whether outliers or distribution shape may be affecting the SPC limits."
-    )
-
-    st.caption(
-    "Diagnostics help you understand whether outliers or distribution shape may be affecting the SPC limits."
-    )
-
-    hist_fig, box_fig, s = build_distribution_diagnostics(
-        df, title_prefix=""
-    )
+    st.info(diagnostics_summary_text(s))
 
     col1, col2 = st.columns(2)
     with col1:
@@ -568,23 +583,19 @@ with tab_diag:
     st.caption("Tip: Strong skew or extreme outliers may inflate SD and widen control limits.")
 
 # ---------------------------
-# Export chart as JPEG (download)
+# Export (SPC chart JPEG)
 # ---------------------------
 st.subheader("Export")
-colA, colB = st.columns([1, 2])
+if st.button("Create SPC JPEG export"):
+    img_bytes = fig_spc.to_image(format="jpeg", scale=2)  # requires kaleido
+    st.session_state["jpeg_spc"] = img_bytes
+    st.success("SPC JPEG created. Use the download button.")
 
-with colA:
-    if st.button("Create JPEG export"):
-        img_bytes = fig.to_image(format="jpeg", scale=2)  # requires kaleido
-        st.session_state["jpeg"] = img_bytes
-        st.success("JPEG created. Use the download button.")
-
-with colB:
-    jpeg = st.session_state.get("jpeg", None)
-    if jpeg:
-        st.download_button(
-            label="Download chart JPEG",
-            data=jpeg,
-            file_name="spc_chart.jpeg",
-            mime="image/jpeg"
-        )
+jpeg = st.session_state.get("jpeg_spc", None)
+if jpeg:
+    st.download_button(
+        label="Download SPC chart JPEG",
+        data=jpeg,
+        file_name="spc_chart.jpeg",
+        mime="image/jpeg"
+    )
