@@ -439,6 +439,40 @@ def build_cusum_vlad_and_signals(
 
     return fig_cusum, fig_excess, out, H1, H2, len(sig1_only_idx), len(sig2_idx)
 
+def cusum_signal_interpretation(n_sig1: int, n_sig2: int, start_m: pd.Timestamp, end_m: pd.Timestamp) -> str:
+    period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
+    if n_sig2 > 0:
+        return (
+            f"CUSUM ({period}) indicates {n_sig2} month(s) crossed Level 2 (red), "
+            "meaning there is 99% confidence the signal is unlikely to have occurred by chance."
+        )
+    if n_sig1 > 0:
+        return (
+            f"CUSUM ({period}) indicates {n_sig1} month(s) crossed Level 1 (amber), "
+            "meaning there is 95% confidence the signal is unlikely to have occurred by chance."
+        )
+    return (
+        f"CUSUM ({period}) indicates no months crossed Level 1 (amber) or Level 2 (red), "
+        "so no statistically significant signal was detected within the selected dates."
+    )
+
+
+def excess_events_interpretation(last_excess: float, start_m: pd.Timestamp, end_m: pd.Timestamp) -> str:
+    period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
+    if last_excess > 0:
+        return (
+            f"Excess events ({period}) indicates about {last_excess:.1f} more events than expected "
+            "compared to the national reference rate (Observed − Expected is positive)."
+        )
+    if last_excess < 0:
+        return (
+            f"Excess events ({period}) indicates about {abs(last_excess):.1f} fewer events than expected "
+            "compared to the national reference rate (Observed − Expected is negative)."
+        )
+    return (
+        f"Excess events ({period}) indicates observed events match expected events overall "
+        "compared to the national reference rate (cumulative difference is ~0)."
+    )
 
 # ---------------------------
 # Diagnostics
@@ -686,12 +720,7 @@ with tab_cusum:
     st.subheader("CUSUM chart")
     st.plotly_chart(fig_cusum, use_container_width=True)
 
-    if n_sig2 > 0:
-        st.info(f"CUSUM: {n_sig2} Level 2 signal point(s) (red) — 99% confidence not due to chance.")
-    elif n_sig1 > 0:
-        st.info(f"CUSUM: {n_sig1} Level 1 signal point(s) (amber) — 95% confidence not due to chance.")
-    else:
-        st.info("CUSUM: No Level 1 or Level 2 signal points suggesting the increase is unlikely due to chance within the selected dates.")
+    st.info(cusum_signal_interpretation(n_sig1, n_sig2, start_m, end_m))
 
     st.caption("X-axis: Month (time period).  •  Y-axis: CUSUM statistic based on cumulative variation between observed and expected events (national reference rate).")
 
@@ -700,12 +729,7 @@ with tab_cusum:
     st.plotly_chart(fig_excess, use_container_width=True)
 
     last_excess = float(df_cu["CumExcessEvents"].iloc[-1])
-    if last_excess > 0:
-        st.info(f"Excess events: >0 — more events than expected vs national reference indicates that, over the selected period, the trust has experienced about {last_excess:.1f} more events than would be expected if it followed the national reference rate.")
-    elif last_excess < 0:
-        st.info(f"Excess events: <0 — fewer events than expected vs national reference (latest cumulative excess = {last_excess:.1f}).")
-    else:
-        st.info("Excess events: 0 — observed events match expected vs national reference.")
+    st.info(excess_events_interpretation(last_excess, start_m, end_m))
 
     st.caption("X-axis: Month (time period).  •  Y-axis: Cumulative excess events (Observed − Expected) vs national reference rate.")
 
