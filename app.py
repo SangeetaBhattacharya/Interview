@@ -769,16 +769,6 @@ with tab_diag:
         st.plotly_chart(box_fig, use_container_width=True)
         st.info(boxplot_interpretation(df, start_m, end_m))
 
-''' st.markdown("### Summary statistics (selected date range)")
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
-    m1.metric("n", f"{s['n']}")
-    m2.metric("Mean", f"{s['mean']:.2f}")
-    m3.metric("SD", f"{s['sd']:.2f}")
-    m4.metric("Min", f"{s['min']:.2f}")
-    m5.metric("Max", f"{s['max']:.2f}")
-    m6.metric("Skew", f"{s['skew']:.2f}")
-
-    st.caption("Tip: Strong skew or extreme outliers may inflate SD and widen control limits.")'''
 
 # ---------------------------
 # Export (SPC chart JPEG)
