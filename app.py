@@ -340,7 +340,7 @@ def build_cusum_vlad_and_signals(
     )
     fig_cusum.add_hline(
         y=H2, line_dash="dot", line_color=BAD, line_width=2,
-        annotation_text="Level 2 (99%)", annotation_position="top right"
+        annotation_text="Level 2 (99%)", annotation_position="bottom right"
     )
     fig_cusum.add_hline(y=0, line_color="#111827", line_width=1)
 
@@ -691,7 +691,7 @@ with tab_cusum:
     elif n_sig1 > 0:
         st.info(f"CUSUM: {n_sig1} Level 1 signal point(s) (amber) — 95% confidence not due to chance.")
     else:
-        st.info("CUSUM: No Level 1 or Level 2 signal points in the selected period.")
+        st.info("CUSUM: No Level 1 or Level 2 signal points suggesting the increase is unlikely due to chance within the selected dates.")
 
     st.caption("X-axis: Month (time period).  •  Y-axis: CUSUM statistic based on cumulative variation between observed and expected events (national reference rate).")
 
@@ -701,7 +701,7 @@ with tab_cusum:
 
     last_excess = float(df_cu["CumExcessEvents"].iloc[-1])
     if last_excess > 0:
-        st.info(f"Excess events: >0 — more events than expected vs national reference (latest cumulative excess = {last_excess:.1f}).")
+        st.info(f"Excess events: >0 — more events than expected vs national reference indicates that, over the selected period, the trust has experienced about {last_excess:.1f} more events than would be expected if it followed the national reference rate.")
     elif last_excess < 0:
         st.info(f"Excess events: <0 — fewer events than expected vs national reference (latest cumulative excess = {last_excess:.1f}).")
     else:
