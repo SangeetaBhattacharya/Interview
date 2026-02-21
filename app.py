@@ -277,12 +277,6 @@ def build_cusum_vlad_and_signals(
     arl_level2: int = 100,   # ~99%
     seed: int = 42,
 ):
-    """
-    - CUSUM chart: cumulative variation between observed events and expected events (national reference rate)
-    - Excess events (VLAD): cumulative (Observed - Expected) vs national reference
-
-    Thresholds are approximated for a prototype (production would replicate CUSUMdesign getH() Markov chain thresholds).
-    """
     dfx = df.copy().reset_index(drop=True)
     n = len(dfx)
 
@@ -294,11 +288,9 @@ def build_cusum_vlad_and_signals(
     expected = births * p_nat
     observed = births * p_loc
 
-    # Excess events (VLAD)
     excess = observed - expected
     cum_excess = np.cumsum(excess)
 
-    # k based on μ0 and μ1 = 2*μ0 (doubling)
     mu0 = np.maximum(expected, 1e-6)
     mu1 = 2.0 * mu0
     k = (mu1 - mu0) / (np.log(mu1) - np.log(mu0))
@@ -308,20 +300,17 @@ def build_cusum_vlad_and_signals(
         prev = cusum[i - 1] if i > 0 else 0.0
         cusum[i] = prev + observed[i] - k[i]
 
-    # Prototype thresholds from ARL idea (simple scaling)
     inc = observed - k
     inc_sd = float(np.std(inc, ddof=1)) if n > 1 else 1.0
     inc_sd = inc_sd if np.isfinite(inc_sd) and inc_sd > 0 else 1.0
     H1 = inc_sd * np.log(max(arl_level1, 2))
     H2 = inc_sd * np.log(max(arl_level2, 2))
 
-    # Indices above thresholds (ALL points)
     sig1_idx = np.where(cusum >= H1)[0]
     sig2_idx = np.where(cusum >= H2)[0]
     sig2_set = set(sig2_idx.tolist())
     sig1_only_idx = np.array([i for i in sig1_idx if i not in sig2_set], dtype=int)
 
-    # --- CUSUM figure
     fig_cusum = go.Figure()
     fig_cusum.add_trace(
         go.Scatter(
@@ -344,7 +333,6 @@ def build_cusum_vlad_and_signals(
     )
     fig_cusum.add_hline(y=0, line_color="#111827", line_width=1)
 
-    # Signal dots: ALL points (amber for >=H1, red for >=H2; red takes priority)
     if len(sig1_only_idx) > 0:
         fig_cusum.add_trace(
             go.Scatter(
@@ -379,7 +367,6 @@ def build_cusum_vlad_and_signals(
         font=dict(family="Inter, Arial"),
     )
 
-    # --- Excess events (VLAD) figure + matching signal markers
     fig_excess = go.Figure()
     fig_excess.add_trace(
         go.Scatter(
@@ -394,7 +381,6 @@ def build_cusum_vlad_and_signals(
     )
     fig_excess.add_hline(y=0, line_color="#111827", line_width=1)
 
-    # Mark the same signal months on VLAD, so signals correspond visually
     if len(sig1_only_idx) > 0:
         fig_excess.add_trace(
             go.Scatter(
@@ -439,6 +425,10 @@ def build_cusum_vlad_and_signals(
 
     return fig_cusum, fig_excess, out, H1, H2, len(sig1_only_idx), len(sig2_idx)
 
+
+# ---------------------------
+# Dynamic, user-friendly interpretations
+# ---------------------------
 def cusum_signal_interpretation(n_sig1: int, n_sig2: int, start_m: pd.Timestamp, end_m: pd.Timestamp) -> str:
     period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
     if n_sig2 > 0:
@@ -473,6 +463,47 @@ def excess_events_interpretation(last_excess: float, start_m: pd.Timestamp, end_
         f"Excess events ({period}) indicates observed events match expected events overall "
         "compared to the national reference rate (cumulative difference is ~0)."
     )
+
+
+def histogram_interpretation(s: dict, start_m: pd.Timestamp, end_m: pd.Timestamp) -> str:
+    period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
+    skew = float(s.get("skew", 0.0))
+
+    if abs(skew) < 0.5:
+        return (
+            f"Across {period}, most months sit close to the typical level, with no strong pattern of spikes or dips."
+        )
+    elif skew > 0:
+        return (
+            f"Across {period}, a few higher months stand out, which may mean occasional spikes are pulling the average up."
+        )
+    else:
+        return (
+            f"Across {period}, a few lower months stand out, which may mean occasional dips are pulling the average down."
+        )
+
+
+def boxplot_interpretation(df: pd.DataFrame, start_m: pd.Timestamp, end_m: pd.Timestamp) -> str:
+    period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
+    y = df["Rate"].dropna().astype(float)
+
+    if len(y) < 4:
+        return f"There are too few months in {period} to confidently judge spread or unusual months."
+
+    q1 = float(y.quantile(0.25))
+    q3 = float(y.quantile(0.75))
+    iqr = q3 - q1
+    low = q1 - 1.5 * iqr
+    high = q3 + 1.5 * iqr
+    outliers = y[(y < low) | (y > high)]
+    n_out = int(outliers.shape[0])
+
+    if n_out == 0:
+        return f"Across {period}, month-to-month variation is consistent with no unusually extreme months."
+    if n_out == 1:
+        return f"Across {period}, there is 1 unusually high/low month, which may slightly affect the overall limits."
+    return f"Across {period}, there are {n_out} unusually high/low months, which may widen the control limits."
+
 
 # ---------------------------
 # Diagnostics
@@ -699,7 +730,6 @@ with tab_spc:
     st.plotly_chart(fig_spc, use_container_width=True)
 
 with tab_cusum:
-    # National reference rate (aligned to your text): use National series mean over the selected period
     df_nat_full = generate_series(view="National", indicator=indicator, provider=provider)
     df_nat = df_nat_full[(df_nat_full["Month"] >= start_m) & (df_nat_full["Month"] <= end_m)].copy()
     nat_ref = float(df_nat["Rate"].mean()) if not df_nat.empty else float(df["Rate"].mean())
@@ -716,21 +746,15 @@ with tab_cusum:
     st.markdown(f"**National reference rate (used for expected events):** {nat_ref:.2f}")
     st.caption("Prototype note: thresholds are approximated for this demo; production implementation would replicate CUSUMdesign getH() Markov chain thresholds.")
 
-    # --- CUSUM Signal chart
     st.subheader("CUSUM chart")
     st.plotly_chart(fig_cusum, use_container_width=True)
-
     st.info(cusum_signal_interpretation(n_sig1, n_sig2, start_m, end_m))
-
     st.caption("X-axis: Month (time period).  •  Y-axis: CUSUM statistic based on cumulative variation between observed and expected events (national reference rate).")
 
-    # --- Excess events (VLAD)
     st.subheader("Excess events (VLAD)")
     st.plotly_chart(fig_excess, use_container_width=True)
-
     last_excess = float(df_cu["CumExcessEvents"].iloc[-1])
     st.info(excess_events_interpretation(last_excess, start_m, end_m))
-
     st.caption("X-axis: Month (time period).  •  Y-axis: Cumulative excess events (Observed − Expected) vs national reference rate.")
 
 with tab_diag:
@@ -740,10 +764,12 @@ with tab_diag:
     col1, col2 = st.columns(2)
     with col1:
         st.plotly_chart(hist_fig, use_container_width=True)
+        st.info(histogram_interpretation(s, start_m, end_m))
     with col2:
         st.plotly_chart(box_fig, use_container_width=True)
+        st.info(boxplot_interpretation(df, start_m, end_m))
 
-    st.markdown("### Summary statistics (selected date range)")
+''' st.markdown("### Summary statistics (selected date range)")
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("n", f"{s['n']}")
     m2.metric("Mean", f"{s['mean']:.2f}")
@@ -752,7 +778,7 @@ with tab_diag:
     m5.metric("Max", f"{s['max']:.2f}")
     m6.metric("Skew", f"{s['skew']:.2f}")
 
-    st.caption("Tip: Strong skew or extreme outliers may inflate SD and widen control limits.")
+    st.caption("Tip: Strong skew or extreme outliers may inflate SD and widen control limits.")'''
 
 # ---------------------------
 # Export (SPC chart JPEG)
