@@ -16,13 +16,12 @@ GOOD = "#007f3b"
 BAD = "#d5281b"
 AMBER = "#FFB81C"
 
-# Public NHS logo
 NHS_LOGO_URL = "https://www.england.nhs.uk/wp-content/themes/nhsengland/static/img/nhs-logo-blue.svg"
 
 st.set_page_config(page_title="SPC charts", layout="wide")
 
 # ---------------------------
-# CSS (clean)
+# CSS
 # ---------------------------
 st.markdown(
     f"""
@@ -95,13 +94,15 @@ st.markdown(
 )
 
 # ---------------------------
-# Mock SPC data + rules
+# Mock SPC data
 # ---------------------------
 np.random.seed(12)
 
-def generate_series(view="National",
-                    indicator="Babies who were born preterm (Rate per 1,000)",
-                    provider="Airedale NHS Foundation Trust"):
+def generate_series(
+    view="National",
+    indicator="Babies who were born preterm (Rate per 1,000)",
+    provider="Airedale NHS Foundation Trust",
+):
     months = pd.date_range("2024-01-01", "2025-10-01", freq="MS")
     n = len(months)
 
@@ -119,7 +120,7 @@ def generate_series(view="National",
     if n > 11:
         values[11] += 6.0  # ~Dec 2024 spike
     if view != "National" and n > 18:
-        values[18] -= 5.0
+        values[18] -= 5.0  # provider dip later
 
     return pd.DataFrame({"Month": months, "Rate": values})
 
@@ -145,7 +146,7 @@ def rule_flags(df, mean, ucl, lcl):
         for i, b in enumerate(bool_series):
             count = count + 1 if b else 0
             if count >= run_len:
-                marks[i-run_len+1:i+1] = True
+                marks[i - run_len + 1 : i + 1] = True
         return marks
 
     df["Run8"] = mark_runs(above) | mark_runs(below)
@@ -161,11 +162,10 @@ def build_spc_figure(df, mean, ucl, lcl, show_ann=True, show_run=True):
 
     fig = go.Figure()
 
-    # Shaded control zones
     sigma = (ucl - mean) / 3.0 if np.isfinite(ucl) and np.isfinite(mean) else 0.0
-    z1_low, z1_high = mean - 1*sigma, mean + 1*sigma
-    z2_low, z2_high = mean - 2*sigma, mean + 2*sigma
-    z3_low, z3_high = mean - 3*sigma, mean + 3*sigma
+    z1_low, z1_high = mean - 1 * sigma, mean + 1 * sigma
+    z2_low, z2_high = mean - 2 * sigma, mean + 2 * sigma
+    z3_low, z3_high = mean - 3 * sigma, mean + 3 * sigma
 
     fig.add_hrect(y0=z3_low, y1=z2_low, fillcolor=NHS_BLUE, opacity=0.04, line_width=0)
     fig.add_hrect(y0=z2_low, y1=z1_low, fillcolor=NHS_BLUE, opacity=0.06, line_width=0)
@@ -173,102 +173,278 @@ def build_spc_figure(df, mean, ucl, lcl, show_ann=True, show_run=True):
     fig.add_hrect(y0=z1_high, y1=z2_high, fillcolor=NHS_BLUE, opacity=0.06, line_width=0)
     fig.add_hrect(y0=z2_high, y1=z3_high, fillcolor=NHS_BLUE, opacity=0.04, line_width=0)
 
-    fig.add_trace(go.Scatter(
-        x=in_control["Month"], y=in_control["Rate"],
-        mode="lines+markers",
-        name="In control",
-        line=dict(color=NHS_BLUE, width=2),
-        marker=dict(size=7),
-        hovertemplate="%{x|%b %Y}<br>Rate: %{y:.2f}<extra></extra>"
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=in_control["Month"],
+            y=in_control["Rate"],
+            mode="lines+markers",
+            name="In control",
+            line=dict(color=NHS_BLUE, width=2),
+            marker=dict(size=7),
+            hovertemplate="%{x|%b %Y}<br>Rate: %{y:.2f}<extra></extra>",
+        )
+    )
 
     if not special.empty:
-        fig.add_trace(go.Scatter(
-            x=special["Month"], y=special["Rate"],
-            mode="markers",
-            name="Special cause",
-            marker=dict(size=12, color=BAD, line=dict(width=1, color="#111827")),
-            hovertemplate="%{x|%b %Y}<br><b>Special cause</b><br>Rate: %{y:.2f}<extra></extra>"
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=special["Month"],
+                y=special["Rate"],
+                mode="markers",
+                name="Special cause",
+                marker=dict(size=12, color=BAD, line=dict(width=1, color="#111827")),
+                hovertemplate="%{x|%b %Y}<br><b>Special cause</b><br>Rate: %{y:.2f}<extra></extra>",
+            )
+        )
 
     if show_run and (not run_only.empty):
-        fig.add_trace(go.Scatter(
-            x=run_only["Month"], y=run_only["Rate"],
-            mode="markers",
-            name="Run-of-8 signal",
-            marker=dict(size=10, symbol="diamond", color=AMBER),
-            hovertemplate="%{x|%b %Y}<br><b>Run-of-8</b><br>Rate: %{y:.2f}<extra></extra>"
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=run_only["Month"],
+                y=run_only["Rate"],
+                mode="markers",
+                name="Run-of-8 signal",
+                marker=dict(size=10, symbol="diamond", color=AMBER),
+                hovertemplate="%{x|%b %Y}<br><b>Run-of-8</b><br>Rate: %{y:.2f}<extra></extra>",
+            )
+        )
 
-    fig.add_hline(y=mean, line_color="#111827", line_width=2,
-                  annotation_text="Mean" if show_ann else None,
-                  annotation_position="top left")
-    fig.add_hline(y=ucl, line_dash="dash", line_color=NHS_GREY, line_width=2,
-                  annotation_text="UCL" if show_ann else None,
-                  annotation_position="top left")
-    fig.add_hline(y=lcl, line_dash="dash", line_color=NHS_GREY, line_width=2,
-                  annotation_text="LCL" if show_ann else None,
-                  annotation_position="bottom left")
+    fig.add_hline(
+        y=mean,
+        line_color="#111827",
+        line_width=2,
+        annotation_text="Mean" if show_ann else None,
+        annotation_position="top left",
+    )
+    fig.add_hline(
+        y=ucl,
+        line_dash="dash",
+        line_color=NHS_GREY,
+        line_width=2,
+        annotation_text="UCL" if show_ann else None,
+        annotation_position="top left",
+    )
+    fig.add_hline(
+        y=lcl,
+        line_dash="dash",
+        line_color=NHS_GREY,
+        line_width=2,
+        annotation_text="LCL" if show_ann else None,
+        annotation_position="bottom left",
+    )
 
     fig.update_layout(
         height=520,
         margin=dict(l=20, r=20, t=10, b=10),
-        xaxis_title=None, yaxis_title=None,
-        plot_bgcolor="white", paper_bgcolor="white",
+        xaxis_title=None,
+        yaxis_title=None,
+        plot_bgcolor="white",
+        paper_bgcolor="white",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        font=dict(family="Inter, Arial")
+        font=dict(family="Inter, Arial"),
     )
     return fig, df
 
 
-def build_cusum_figure(df, target=None, k=0.5):
-    dfx = df.copy()
-    if target is None:
-        target = float(dfx["Rate"].mean())
+# ---------------------------
+# CUSUM aligned with your guidance (demo implementation)
+# ---------------------------
+def _rate_to_prob(indicator: str, rate_value: float) -> float:
+    name = indicator.lower()
+    if "percent" in name:
+        return max(0.0, min(1.0, rate_value / 100.0))
+    if "rate per 1,000" in name or "rate per 1000" in name:
+        return max(0.0, min(1.0, rate_value / 1000.0))
+    if "rate per 100" in name:
+        return max(0.0, min(1.0, rate_value / 100.0))
+    return max(0.0, min(1.0, rate_value / 1000.0))
 
-    dev = dfx["Rate"] - target
 
-    cplus = [0.0]
-    cminus = [0.0]
-    for i in range(1, len(dev) + 1):
-        x = float(dev.iloc[i - 1])
-        cplus.append(max(0.0, cplus[-1] + x - k))
-        cminus.append(min(0.0, cminus[-1] + x + k))
+def _make_births_series(n: int, seed: int) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    base = int(rng.integers(350, 900))
+    season = 1.0 + 0.05 * np.sin(np.linspace(0, 2 * np.pi, n))
+    noise = rng.normal(0, 25, n)
+    births = np.clip(base * season + noise, 200, None)
+    return births.astype(int)
 
-    dfx["CUSUM+"] = cplus[1:]
-    dfx["CUSUM-"] = cminus[1:]
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=dfx["Month"], y=dfx["CUSUM+"],
-        mode="lines+markers", name="CUSUM+",
-        line=dict(color=NHS_BLUE, width=2),
-        marker=dict(size=6),
-        hovertemplate="%{x|%b %Y}<br>CUSUM+: %{y:.2f}<extra></extra>"
-    ))
-    fig.add_trace(go.Scatter(
-        x=dfx["Month"], y=dfx["CUSUM-"],
-        mode="lines+markers", name="CUSUM-",
-        line=dict(color=BAD, width=2),
-        marker=dict(size=6),
-        hovertemplate="%{x|%b %Y}<br>CUSUM-: %{y:.2f}<extra></extra>"
-    ))
-    fig.add_hline(y=0, line_color="#111827", line_width=1)
+def build_cusum_vlad_and_signals(
+    df: pd.DataFrame,
+    indicator: str,
+    national_reference_rate: float,
+    arl_level1: int = 20,    # ~95%
+    arl_level2: int = 100,   # ~99%
+    seed: int = 42,
+):
+    """
+    - CUSUM chart: cumulative variation between observed events and expected events (national reference rate)
+    - Excess events (VLAD): cumulative (Observed - Expected) vs national reference
 
-    fig.update_layout(
-        height=520,
-        margin=dict(l=20, r=20, t=10, b=10),
-        xaxis_title=None, yaxis_title=None,
-        plot_bgcolor="white", paper_bgcolor="white",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        font=dict(family="Inter, Arial")
+    Thresholds are approximated for a prototype (production would replicate CUSUMdesign getH() Markov chain thresholds).
+    """
+    dfx = df.copy().reset_index(drop=True)
+    n = len(dfx)
+
+    births = _make_births_series(n, seed=seed)
+
+    p_nat = _rate_to_prob(indicator, float(national_reference_rate))
+    p_loc = np.array([_rate_to_prob(indicator, float(r)) for r in dfx["Rate"].values])
+
+    expected = births * p_nat
+    observed = births * p_loc
+
+    # Excess events (VLAD)
+    excess = observed - expected
+    cum_excess = np.cumsum(excess)
+
+    # k based on μ0 and μ1 = 2*μ0 (doubling)
+    mu0 = np.maximum(expected, 1e-6)
+    mu1 = 2.0 * mu0
+    k = (mu1 - mu0) / (np.log(mu1) - np.log(mu0))
+
+    cusum = np.zeros(n)
+    for i in range(n):
+        prev = cusum[i - 1] if i > 0 else 0.0
+        cusum[i] = prev + observed[i] - k[i]
+
+    # Prototype thresholds from ARL idea (simple scaling)
+    inc = observed - k
+    inc_sd = float(np.std(inc, ddof=1)) if n > 1 else 1.0
+    inc_sd = inc_sd if np.isfinite(inc_sd) and inc_sd > 0 else 1.0
+    H1 = inc_sd * np.log(max(arl_level1, 2))
+    H2 = inc_sd * np.log(max(arl_level2, 2))
+
+    # Indices above thresholds (ALL points)
+    sig1_idx = np.where(cusum >= H1)[0]
+    sig2_idx = np.where(cusum >= H2)[0]
+    sig2_set = set(sig2_idx.tolist())
+    sig1_only_idx = np.array([i for i in sig1_idx if i not in sig2_set], dtype=int)
+
+    # --- CUSUM figure
+    fig_cusum = go.Figure()
+    fig_cusum.add_trace(
+        go.Scatter(
+            x=dfx["Month"],
+            y=cusum,
+            mode="lines+markers",
+            name="CUSUM statistic",
+            line=dict(color=NHS_BLUE, width=2),
+            marker=dict(size=6),
+            hovertemplate="%{x|%b %Y}<br>CUSUM: %{y:.2f}<extra></extra>",
+        )
     )
-    return fig, dfx, target
+    fig_cusum.add_hline(
+        y=H1, line_dash="dot", line_color=AMBER, line_width=2,
+        annotation_text="Level 1 (95%)", annotation_position="top left"
+    )
+    fig_cusum.add_hline(
+        y=H2, line_dash="dot", line_color=BAD, line_width=2,
+        annotation_text="Level 2 (99%)", annotation_position="top left"
+    )
+    fig_cusum.add_hline(y=0, line_color="#111827", line_width=1)
+
+    # Signal dots: ALL points (amber for >=H1, red for >=H2; red takes priority)
+    if len(sig1_only_idx) > 0:
+        fig_cusum.add_trace(
+            go.Scatter(
+                x=dfx["Month"].iloc[sig1_only_idx],
+                y=cusum[sig1_only_idx],
+                mode="markers",
+                name="Signal level 1 (amber)",
+                marker=dict(size=11, color=AMBER),
+                hovertemplate="%{x|%b %Y}<br><b>Level 1 signal (95%)</b><extra></extra>",
+            )
+        )
+    if len(sig2_idx) > 0:
+        fig_cusum.add_trace(
+            go.Scatter(
+                x=dfx["Month"].iloc[sig2_idx],
+                y=cusum[sig2_idx],
+                mode="markers",
+                name="Signal level 2 (red)",
+                marker=dict(size=12, color=BAD),
+                hovertemplate="%{x|%b %Y}<br><b>Level 2 signal (99%)</b><extra></extra>",
+            )
+        )
+
+    fig_cusum.update_layout(
+        height=420,
+        margin=dict(l=20, r=20, t=10, b=10),
+        xaxis_title="Month",
+        yaxis_title="CUSUM statistic (Observed vs Expected events)",
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        font=dict(family="Inter, Arial"),
+    )
+
+    # --- Excess events (VLAD) figure + matching signal markers
+    fig_excess = go.Figure()
+    fig_excess.add_trace(
+        go.Scatter(
+            x=dfx["Month"],
+            y=cum_excess,
+            mode="lines+markers",
+            name="Cumulative excess events",
+            line=dict(color=NHS_BLUE, width=2),
+            marker=dict(size=6),
+            hovertemplate="%{x|%b %Y}<br>Cumulative excess: %{y:.2f}<extra></extra>",
+        )
+    )
+    fig_excess.add_hline(y=0, line_color="#111827", line_width=1)
+
+    # Mark the same signal months on VLAD, so signals correspond visually
+    if len(sig1_only_idx) > 0:
+        fig_excess.add_trace(
+            go.Scatter(
+                x=dfx["Month"].iloc[sig1_only_idx],
+                y=cum_excess[sig1_only_idx],
+                mode="markers",
+                name="Signal level 1 (amber)",
+                marker=dict(size=11, color=AMBER),
+                hovertemplate="%{x|%b %Y}<br><b>Level 1 signal month</b><extra></extra>",
+            )
+        )
+    if len(sig2_idx) > 0:
+        fig_excess.add_trace(
+            go.Scatter(
+                x=dfx["Month"].iloc[sig2_idx],
+                y=cum_excess[sig2_idx],
+                mode="markers",
+                name="Signal level 2 (red)",
+                marker=dict(size=12, color=BAD),
+                hovertemplate="%{x|%b %Y}<br><b>Level 2 signal month</b><extra></extra>",
+            )
+        )
+
+    fig_excess.update_layout(
+        height=420,
+        margin=dict(l=20, r=20, t=10, b=10),
+        xaxis_title="Month",
+        yaxis_title="Cumulative excess events vs national reference",
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        font=dict(family="Inter, Arial"),
+    )
+
+    out = dfx.copy()
+    out["Births"] = births
+    out["ExpectedEvents"] = expected
+    out["ObservedEvents"] = observed
+    out["ExcessEvents"] = excess
+    out["CumExcessEvents"] = cum_excess
+    out["CUSUM"] = cusum
+
+    return fig_cusum, fig_excess, out, H1, H2, len(sig1_only_idx), len(sig2_idx)
 
 
+# ---------------------------
+# Diagnostics
+# ---------------------------
 def build_distribution_diagnostics(df):
     series = df["Rate"].dropna().astype(float)
-
     stats_dict = {
         "n": int(series.shape[0]),
         "mean": float(series.mean()),
@@ -282,90 +458,40 @@ def build_distribution_diagnostics(df):
     hist_fig.update_layout(
         height=320,
         margin=dict(l=10, r=10, t=40, b=10),
-        plot_bgcolor="white", paper_bgcolor="white",
-        xaxis_title=None, yaxis_title=None,
-        showlegend=False
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        xaxis_title=None,
+        yaxis_title=None,
+        showlegend=False,
     )
 
     if stats_dict["sd"] > 0:
         xs = np.linspace(stats_dict["min"], stats_dict["max"], 200)
         ys = stats.norm.pdf(xs, loc=stats_dict["mean"], scale=stats_dict["sd"])
         ys_scaled = ys / ys.max() * (series.shape[0] / 4)
-        hist_fig.add_trace(go.Scatter(
-            x=xs, y=ys_scaled,
-            mode="lines",
-            name="Normal curve (reference)",
-            line=dict(color="#111827", width=2),
-            hoverinfo="skip"
-        ))
+        hist_fig.add_trace(
+            go.Scatter(
+                x=xs,
+                y=ys_scaled,
+                mode="lines",
+                name="Normal curve (reference)",
+                line=dict(color="#111827", width=2),
+                hoverinfo="skip",
+            )
+        )
 
     box_fig = px.box(df, y="Rate", points="outliers", title="Spread (Box plot)")
     box_fig.update_layout(
         height=320,
         margin=dict(l=10, r=10, t=40, b=10),
-        plot_bgcolor="white", paper_bgcolor="white",
-        xaxis_title=None, yaxis_title=None,
-        showlegend=False
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        xaxis_title=None,
+        yaxis_title=None,
+        showlegend=False,
     )
 
     return hist_fig, box_fig, stats_dict
-
-
-# ===============================
-# Dynamic Interpretation Helpers
-# ===============================
-def _fmt_month(ts) -> str:
-    return pd.Timestamp(ts).strftime("%b %Y")
-
-
-def spc_summary_text(df_flagged: pd.DataFrame, mean: float, ucl: float, lcl: float) -> str:
-    if df_flagged.empty:
-        return "SPC: No data in the selected period."
-
-    special_n = int(df_flagged["SpecialCause"].sum()) if "SpecialCause" in df_flagged else 0
-    outside_n = int(df_flagged["Outside"].sum()) if "Outside" in df_flagged else 0
-    run8_n = int(df_flagged["Run8"].sum()) if "Run8" in df_flagged else 0
-
-    latest_month = _fmt_month(df_flagged["Month"].iloc[-1])
-    latest_val = float(df_flagged["Rate"].iloc[-1])
-
-    if special_n == 0:
-        return f"SPC: No special-cause signals in the selected period. Latest ({latest_month}) = {latest_val:.2f}."
-
-    parts = [f"SPC: {special_n} signal month(s) flagged"]
-    if outside_n:
-        parts.append(f"{outside_n} outside limits")
-    if run8_n:
-        parts.append(f"{run8_n} run-of-8 point(s)")
-    return f"{'; '.join(parts)}. Latest ({latest_month}) = {latest_val:.2f}."
-
-
-def cusum_summary_text(df_cusum: pd.DataFrame) -> str:
-    if df_cusum.empty or "CUSUM+" not in df_cusum or "CUSUM-" not in df_cusum:
-        return "CUSUM: Not available for the selected period."
-
-    max_plus = float(df_cusum["CUSUM+"].max())
-    min_minus = float(df_cusum["CUSUM-"].min())
-
-    if max_plus < 1e-6 and abs(min_minus) < 1e-6:
-        return "CUSUM: No accumulated shift detected."
-
-    if max_plus >= abs(min_minus):
-        return f"CUSUM: Upward accumulation detected (peak {max_plus:.2f})."
-    return f"CUSUM: Downward accumulation detected (trough {min_minus:.2f})."
-
-
-def diagnostics_summary_text(stats_dict: dict) -> str:
-    n = int(stats_dict.get("n", 0))
-    if n == 0:
-        return "Diagnostics: No data in the selected period."
-
-    skew = float(stats_dict.get("skew", 0.0))
-    if abs(skew) < 0.5:
-        return "Diagnostics: Distribution is approximately balanced."
-    if skew > 0:
-        return "Diagnostics: Distribution is right-skewed (some higher values)."
-    return "Diagnostics: Distribution is left-skewed (some lower values)."
 
 
 # ---------------------------
@@ -413,8 +539,7 @@ st.markdown(
 )
 
 st.info(
-    "Run-of-8 signal: If 8 consecutive data points fall above or below the mean, "
-    "this indicates a sustained shift unlikely due to random variation (special cause)."
+    "Run-of-8 signal: If 8 consecutive data points fall above or below the mean, this indicates a sustained shift unlikely due to random variation (special cause)."
 )
 
 # ---------------------------
@@ -438,9 +563,9 @@ with c2:
             "Caesarean section rate for Robson Group 2 women (Percent)",
             "Caesarean section rate for Robson Group 5 women (Percent)",
             "Women who had a 3rd or 4th degree tear at delivery (Rate per 1,000)",
-            "Women who had a PPH of 1,500ml or more (Rate per 1,000)"
+            "Women who had a PPH of 1,500ml or more (Rate per 1,000)",
         ],
-        index=2
+        index=2,
     )
 
 with c3:
@@ -455,10 +580,10 @@ with c3:
             "Basildon and Thurrock University Hospitals NHS Foundation Trust (RDD)",
             "Bedford Hospital NHS Trust (RC1)",
             "Bedfordshire Hospitals NHS Foundation Trust (RC9)",
-            "Birmingham Women's and Children's NHS Foundation Trust (RQ3)"
+            "Birmingham Women's and Children's NHS Foundation Trust (RQ3)",
         ],
         index=0,
-        disabled=view.startswith("National")
+        disabled=view.startswith("National"),
     )
 
 with c4:
@@ -517,7 +642,6 @@ current_rate = float(df_flagged["Rate"].iloc[-1])
 any_special = bool(df_flagged["SpecialCause"].any())
 current_special = bool(df_flagged["SpecialCause"].iloc[-1])
 
-# KPI strip (Current series reflects selected start/end)
 kpi_html = f"""
 <div class="kpis">
   <div class="kpi"><p class="lab">Current series</p><p class="val">{series_label}</p><p class="sm">Selected date range</p></div>
@@ -535,35 +659,59 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 # ---------------------------
 # Tabs: SPC / CUSUM / Diagnostics
 # ---------------------------
-tab_spc, tab_cusum, tab_diag = st.tabs(["SPC Chart", "CUSUM Chart", "Diagnostics"])
+tab_spc, tab_cusum, tab_diag = st.tabs(["SPC Chart", "CUSUM & Excess Events", "Diagnostics"])
 
 with tab_spc:
     st.plotly_chart(fig_spc, use_container_width=True)
-    st.info(spc_summary_text(df_flagged, mean, ucl, lcl))
 
 with tab_cusum:
-    sigma = float(df["Rate"].std(ddof=1)) if len(df) > 1 else 0.0
-    if not np.isfinite(sigma):
-        sigma = 0.0
+    # National reference rate (aligned to your text): use National series mean over the selected period
+    df_nat_full = generate_series(view="National", indicator=indicator, provider=provider)
+    df_nat = df_nat_full[(df_nat_full["Month"] >= start_m) & (df_nat_full["Month"] <= end_m)].copy()
+    nat_ref = float(df_nat["Rate"].mean()) if not df_nat.empty else float(df["Rate"].mean())
 
-    k = st.slider(
-        "CUSUM sensitivity (σ units)",
-        0.0, 2.0, 0.5, 0.1,
-        help="Controls how quickly the chart reacts to change. Lower values detect smaller gradual shifts sooner, while higher values highlight only larger changes."
+    fig_cusum, fig_excess, df_cu, H1, H2, n_sig1, n_sig2 = build_cusum_vlad_and_signals(
+        df=df,
+        indicator=indicator,
+        national_reference_rate=nat_ref,
+        arl_level1=20,
+        arl_level2=100,
+        seed=abs(hash(provider + indicator)) % (2**32),
     )
 
-    k_actual = k * sigma
-    fig_cusum, df_cusum, target_used = build_cusum_figure(df, target=mean, k=k_actual)
+    st.markdown(f"**National reference rate (used for expected events):** {nat_ref:.2f}")
+    st.caption("Prototype note: thresholds are approximated for this demo; production implementation would replicate CUSUMdesign getH() Markov chain thresholds.")
 
-    st.markdown(f"**Target (reference):** {target_used:.2f} (using period mean)")
+    # --- CUSUM Signal chart
+    st.subheader("Maternity Outcomes Signal (CUSUM) chart")
     st.plotly_chart(fig_cusum, use_container_width=True)
-    st.info(cusum_summary_text(df_cusum))
+
+    if n_sig2 > 0:
+        st.info(f"CUSUM: {n_sig2} Level 2 signal point(s) (red) — 99% confidence not due to chance.")
+    elif n_sig1 > 0:
+        st.info(f"CUSUM: {n_sig1} Level 1 signal point(s) (amber) — 95% confidence not due to chance.")
+    else:
+        st.info("CUSUM: No Level 1 or Level 2 signal points in the selected period.")
+
+    st.caption("X-axis: Month (time period).  •  Y-axis: CUSUM statistic based on cumulative variation between observed and expected events (national reference rate).")
+
+    # --- Excess events (VLAD)
+    st.subheader("Excess events (VLAD)")
+    st.plotly_chart(fig_excess, use_container_width=True)
+
+    last_excess = float(df_cu["CumExcessEvents"].iloc[-1])
+    if last_excess > 0:
+        st.info(f"Excess events: >0 — more events than expected vs national reference (latest cumulative excess = {last_excess:.1f}).")
+    elif last_excess < 0:
+        st.info(f"Excess events: <0 — fewer events than expected vs national reference (latest cumulative excess = {last_excess:.1f}).")
+    else:
+        st.info("Excess events: 0 — observed events match expected vs national reference.")
+
+    st.caption("X-axis: Month (time period).  •  Y-axis: Cumulative excess events (Observed − Expected) vs national reference rate.")
 
 with tab_diag:
     st.markdown("### Distribution diagnostics")
     hist_fig, box_fig, s = build_distribution_diagnostics(df)
-
-    st.info(diagnostics_summary_text(s))
 
     col1, col2 = st.columns(2)
     with col1:
@@ -587,9 +735,13 @@ with tab_diag:
 # ---------------------------
 st.subheader("Export")
 if st.button("Create SPC JPEG export"):
-    img_bytes = fig_spc.to_image(format="jpeg", scale=2)  # requires kaleido
-    st.session_state["jpeg_spc"] = img_bytes
-    st.success("SPC JPEG created. Use the download button.")
+    try:
+        img_bytes = fig_spc.to_image(format="jpeg", scale=2)  # requires kaleido
+        st.session_state["jpeg_spc"] = img_bytes
+        st.success("SPC JPEG created. Use the download button.")
+    except Exception as e:
+        st.error("JPEG export needs Kaleido. Install it with: pip install -U kaleido")
+        st.exception(e)
 
 jpeg = st.session_state.get("jpeg_spc", None)
 if jpeg:
@@ -597,5 +749,5 @@ if jpeg:
         label="Download SPC chart JPEG",
         data=jpeg,
         file_name="spc_chart.jpeg",
-        mime="image/jpeg"
+        mime="image/jpeg",
     )
