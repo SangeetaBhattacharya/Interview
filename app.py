@@ -340,7 +340,7 @@ def build_cusum_vlad_and_signals(
     )
     fig_cusum.add_hline(
         y=H2, line_dash="dot", line_color=BAD, line_width=2,
-        annotation_text="Level 2 (99%)", annotation_position="top left"
+        annotation_text="Level 2 (99%)", annotation_position="top right"
     )
     fig_cusum.add_hline(y=0, line_color="#111827", line_width=1)
 
@@ -683,7 +683,7 @@ with tab_cusum:
     st.caption("Prototype note: thresholds are approximated for this demo; production implementation would replicate CUSUMdesign getH() Markov chain thresholds.")
 
     # --- CUSUM Signal chart
-    st.subheader("Maternity Outcomes Signal (CUSUM) chart")
+    st.subheader("CUSUM chart")
     st.plotly_chart(fig_cusum, use_container_width=True)
 
     if n_sig2 > 0:
