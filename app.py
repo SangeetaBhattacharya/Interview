@@ -17,7 +17,6 @@ BAD = "#d5281b"
 AMBER = "#FFB81C"
 
 NHS_LOGO_URL = "https://www.england.nhs.uk/wp-content/themes/nhsengland/static/img/nhs-logo-blue.svg"
-
 st.set_page_config(page_title="SPC charts", layout="wide")
 
 # ---------------------------
@@ -79,7 +78,7 @@ st.markdown(
       .help a:hover {{ background:#eef6ff; }}
 
       .kpis {{
-        display:grid; grid-template-columns: repeat(6, 1fr);
+        display:grid; grid-template-columns: repeat(4, 1fr);
         gap: 10px; margin-bottom: 10px;
       }}
       .kpi {{
@@ -116,7 +115,7 @@ def generate_series(
     for i in range(1, n):
         values[i] = 0.65 * values[i - 1] + 0.35 * (base + noise[i])
 
-    # Inject special-cause patterns
+    # Inject special-cause patterns (demo)
     if n > 11:
         values[11] += 6.0  # ~Dec 2024 spike
     if view != "National" and n > 18:
@@ -174,6 +173,7 @@ def build_spc_figure(df, mean, ucl, lcl, show_ann=True, show_run=True):
     fig.add_hrect(y0=z1_high, y1=z2_high, fillcolor=NHS_BLUE, opacity=0.06, line_width=0)
     fig.add_hrect(y0=z2_high, y1=z3_high, fillcolor=NHS_BLUE, opacity=0.04, line_width=0)
 
+    # In-control series
     fig.add_trace(
         go.Scatter(
             x=in_control["Month"],
@@ -186,6 +186,7 @@ def build_spc_figure(df, mean, ucl, lcl, show_ann=True, show_run=True):
         )
     )
 
+    # Special cause points
     if not special.empty:
         fig.add_trace(
             go.Scatter(
@@ -198,6 +199,7 @@ def build_spc_figure(df, mean, ucl, lcl, show_ann=True, show_run=True):
             )
         )
 
+    # Run-of-8 points
     if show_run and (not run_only.empty):
         fig.add_trace(
             go.Scatter(
@@ -210,6 +212,7 @@ def build_spc_figure(df, mean, ucl, lcl, show_ann=True, show_run=True):
             )
         )
 
+    # Reference lines
     fig.add_hline(
         y=mean,
         line_color="#111827",
@@ -248,7 +251,7 @@ def build_spc_figure(df, mean, ucl, lcl, show_ann=True, show_run=True):
 
 
 # ---------------------------
-# CUSUM aligned with your guidance (demo implementation)
+# CUSUM aligned with your guidance (prototype)
 # ---------------------------
 def _rate_to_prob(indicator: str, rate_value: float) -> float:
     name = indicator.lower()
@@ -289,24 +292,29 @@ def build_cusum_vlad_and_signals(
     expected = births * p_nat
     observed = births * p_loc
 
+    # Excess events (VLAD)
     excess = observed - expected
     cum_excess = np.cumsum(excess)
 
+    # k based on μ0 and μ1 = 2*μ0 (doubling)
     mu0 = np.maximum(expected, 1e-6)
     mu1 = 2.0 * mu0
     k = (mu1 - mu0) / (np.log(mu1) - np.log(mu0))
 
+    # CUSUM statistic
     cusum = np.zeros(n)
     for i in range(n):
         prev = cusum[i - 1] if i > 0 else 0.0
         cusum[i] = prev + observed[i] - k[i]
 
+    # Prototype thresholds from ARL idea (demo)
     inc = observed - k
     inc_sd = float(np.std(inc, ddof=1)) if n > 1 else 1.0
     inc_sd = inc_sd if np.isfinite(inc_sd) and inc_sd > 0 else 1.0
     H1 = inc_sd * np.log(max(arl_level1, 2))
     H2 = inc_sd * np.log(max(arl_level2, 2))
 
+    # Signal indices (ALL points above thresholds)
     sig1_idx = np.where(cusum >= H1)[0]
     sig2_idx = np.where(cusum >= H2)[0]
     sig2_set = set(sig2_idx.tolist())
@@ -369,7 +377,7 @@ def build_cusum_vlad_and_signals(
         font=dict(family="Inter, Arial"),
     )
 
-    # --- Excess events figure (VLAD)
+    # --- Excess events (VLAD)
     fig_excess = go.Figure()
     fig_excess.add_trace(
         go.Scatter(
@@ -384,6 +392,7 @@ def build_cusum_vlad_and_signals(
     )
     fig_excess.add_hline(y=0, line_color="#111827", line_width=1)
 
+    # Mark the same signal months on VLAD
     if len(sig1_only_idx) > 0:
         fig_excess.add_trace(
             go.Scatter(
@@ -435,66 +444,36 @@ def build_cusum_vlad_and_signals(
 def cusum_signal_interpretation(n_sig1: int, n_sig2: int, start_m: pd.Timestamp, end_m: pd.Timestamp) -> str:
     period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
     if n_sig2 > 0:
-        return f"CUSUM ({period}): {n_sig2} month(s) crossed Level 2 (red) — 99% confidence this is unlikely due to chance."
+        return f"CUSUM ({period}) shows {n_sig2} month(s) above Level 2 (red) — 99% confidence this is not due to chance."
     if n_sig1 > 0:
-        return f"CUSUM ({period}): {n_sig1} month(s) crossed Level 1 (amber) — 95% confidence this is unlikely due to chance."
-    return f"CUSUM ({period}): no months crossed Level 1 or Level 2 — no statistically significant signal detected."
+        return f"CUSUM ({period}) shows {n_sig1} month(s) above Level 1 (amber) — 95% confidence this is not due to chance."
+    return f"CUSUM ({period}) shows no months above Level 1 or Level 2 — no statistically significant signal in this period."
 
 
 def excess_events_interpretation(last_excess: float, start_m: pd.Timestamp, end_m: pd.Timestamp) -> str:
     period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
     if last_excess > 0:
-        return f"Excess events ({period}): about {last_excess:.1f} more events than expected vs national reference."
+        return f"Excess events ({period}) is +{last_excess:.1f} — more events than expected versus the national reference."
     if last_excess < 0:
-        return f"Excess events ({period}): about {abs(last_excess):.1f} fewer events than expected vs national reference."
-    return f"Excess events ({period}): observed events match expected overall (cumulative difference ~0)."
-
-
-def render_signal_alert(n_sig1: int, n_sig2: int, start_m: pd.Timestamp, end_m: pd.Timestamp):
-    period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
-    if n_sig2 > 0:
-        bg = BAD
-        message = f"Level 2 signal detected ({period}) — 99% confidence this is unlikely due to chance."
-    elif n_sig1 > 0:
-        bg = AMBER
-        message = f"Level 1 signal detected ({period}) — 95% confidence this is unlikely due to chance."
-    else:
-        bg = GOOD
-        message = f"No special cause signal detected ({period}) — variation looks consistent with common cause."
-
-    st.markdown(
-        f"""
-        <div style="
-            background:{bg};
-            color:white;
-            padding:12px 16px;
-            border-radius:8px;
-            font-weight:800;
-            margin-bottom:10px;
-        ">
-            {message}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        return f"Excess events ({period}) is {last_excess:.1f} — fewer events than expected versus the national reference."
+    return f"Excess events ({period}) is ~0 — observed events match expected events versus the national reference."
 
 
 def histogram_interpretation(s: dict, start_m: pd.Timestamp, end_m: pd.Timestamp) -> str:
     period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
     skew = float(s.get("skew", 0.0))
     if abs(skew) < 0.5:
-        return f"Histogram ({period}): values cluster around the typical level; no strong skew."
+        return f"Histogram ({period}): values cluster around the typical level with no strong skew."
     if skew > 0:
-        return f"Histogram ({period}): a few higher months appear, suggesting occasional spikes."
-    return f"Histogram ({period}): a few lower months appear, suggesting occasional dips."
+        return f"Histogram ({period}): some higher months are pulling the distribution to the right (right-skew)."
+    return f"Histogram ({period}): some lower months are pulling the distribution to the left (left-skew)."
 
 
 def boxplot_interpretation(df: pd.DataFrame, start_m: pd.Timestamp, end_m: pd.Timestamp) -> str:
     period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
     y = df["Rate"].dropna().astype(float)
     if len(y) < 4:
-        return f"Box plot ({period}): too few months to judge spread reliably."
-
+        return f"Box plot ({period}): too few months to judge spread and outliers."
     q1 = float(y.quantile(0.25))
     q3 = float(y.quantile(0.75))
     iqr = q3 - q1
@@ -502,16 +481,15 @@ def boxplot_interpretation(df: pd.DataFrame, start_m: pd.Timestamp, end_m: pd.Ti
     high = q3 + 1.5 * iqr
     outliers = y[(y < low) | (y > high)]
     n_out = int(outliers.shape[0])
-
     if n_out == 0:
-        return f"Box plot ({period}): spread looks consistent; no unusually extreme months."
+        return f"Box plot ({period}): spread is stable with no clear outlier months."
     if n_out == 1:
-        return f"Box plot ({period}): 1 unusually high/low month may affect limits slightly."
-    return f"Box plot ({period}): {n_out} unusually high/low months may widen control limits."
+        return f"Box plot ({period}): 1 outlier month may be affecting the limits."
+    return f"Box plot ({period}): {n_out} outlier months may be widening the limits."
 
 
 # ---------------------------
-# Diagnostics visuals
+# Diagnostics charts
 # ---------------------------
 def build_distribution_diagnostics(df):
     series = df["Rate"].dropna().astype(float)
@@ -688,7 +666,7 @@ st.markdown(
 )
 
 # ---------------------------
-# Filter by selected date range
+# Filter by selected date range (month/year behaviour)
 # ---------------------------
 start_m = pd.Timestamp(start_date).to_period("M").to_timestamp()
 end_m = pd.Timestamp(end_date).to_period("M").to_timestamp()
@@ -704,55 +682,19 @@ if df.empty:
     st.warning("No data available for the selected date range.")
     st.stop()
 
-# ---------------------------
-# Build SPC (and flags)
-# ---------------------------
+# Build SPC
 mean, ucl, lcl = spc_limits(df)
 fig_spc, df_flagged = build_spc_figure(df, mean, ucl, lcl, show_ann=show_ann, show_run=show_run)
 
 current_rate = float(df_flagged["Rate"].iloc[-1])
-any_special = bool(df_flagged["SpecialCause"].any())            # any special cause in period
-current_special = bool(df_flagged["SpecialCause"].iloc[-1])     # last point special cause?
 
-# ---------------------------
-# Build CUSUM (before KPI + tabs)
-# ---------------------------
-df_nat_full = generate_series(view="National", indicator=indicator, provider=provider)
-df_nat = df_nat_full[(df_nat_full["Month"] >= start_m) & (df_nat_full["Month"] <= end_m)].copy()
-nat_ref = float(df_nat["Rate"].mean()) if not df_nat.empty else float(df["Rate"].mean())
-
-fig_cusum, fig_excess, df_cu, H1, H2, n_sig1, n_sig2 = build_cusum_vlad_and_signals(
-    df=df,
-    indicator=indicator,
-    national_reference_rate=nat_ref,
-    arl_level1=20,
-    arl_level2=100,
-    seed=abs(hash(provider + indicator)) % (2**32),
-)
-
-# ---------------------------
-# KPI strip (NOW includes Period Signal YES/NO)
-# ---------------------------
-period_signal_yesno = "YES" if any_special else "NO"
-period_signal_colour = BAD if any_special else GOOD
-period_signal_sub = "Special-cause present in selected period" if any_special else "No special-cause detected in selected period"
-
+# KPI strip (REMOVED: "Special cause (current)")
 kpi_html = f"""
 <div class="kpis">
   <div class="kpi"><p class="lab">Current series</p><p class="val">{series_label}</p><p class="sm">Selected date range</p></div>
   <div class="kpi"><p class="lab">Current rate</p><p class="val">{current_rate:.2f}</p><p class="sm">Latest data point</p></div>
   <div class="kpi"><p class="lab">Mean</p><p class="val">{mean:.2f}</p><p class="sm">Centre line</p></div>
   <div class="kpi"><p class="lab">UCL / LCL</p><p class="val">{ucl:.2f} / {lcl:.2f}</p><p class="sm">±3σ limits</p></div>
-
-  <div class="kpi"><p class="lab">Special cause (current)</p>
-    <p class="val" style="color:{BAD if current_special else GOOD};">{'YES' if current_special else 'NO'}</p>
-    <p class="sm">{'Current point is a signal' if current_special else 'Current point is in control'}</p>
-  </div>
-
-  <div class="kpi"><p class="lab">Signal in selected period</p>
-    <p class="val" style="color:{period_signal_colour};">{period_signal_yesno}</p>
-    <p class="sm">{period_signal_sub}</p>
-  </div>
 </div>
 """
 st.markdown(kpi_html, unsafe_allow_html=True)
@@ -763,25 +705,42 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 tab_spc, tab_cusum, tab_diag = st.tabs(["SPC Chart", "CUSUM & Excess Events", "Diagnostics"])
 
 with tab_spc:
-    # Alert strip based on CUSUM thresholds (level 1/2) — you can keep this,
-    # and the new KPI covers SPC "signal in period".
-    render_signal_alert(n_sig1=n_sig1, n_sig2=n_sig2, start_m=start_m, end_m=end_m)
     st.plotly_chart(fig_spc, use_container_width=True)
 
 with tab_cusum:
+    # National reference rate: National series mean over selected period (demo)
+    df_nat_full = generate_series(view="National", indicator=indicator, provider=provider)
+    df_nat = df_nat_full[(df_nat_full["Month"] >= start_m) & (df_nat_full["Month"] <= end_m)].copy()
+    nat_ref = float(df_nat["Rate"].mean()) if not df_nat.empty else float(df["Rate"].mean())
+
+    fig_cusum, fig_excess, df_cu, H1, H2, n_sig1, n_sig2 = build_cusum_vlad_and_signals(
+        df=df,
+        indicator=indicator,
+        national_reference_rate=nat_ref,
+        arl_level1=20,
+        arl_level2=100,
+        seed=abs(hash(provider + indicator)) % (2**32),
+    )
+
     st.markdown(f"**National reference rate (used for expected events):** {nat_ref:.2f}")
-    st.caption("Prototype note: thresholds are approximated for this demo; production implementation would replicate CUSUMdesign getH() Markov chain thresholds.")
+    st.caption(
+        "Prototype note: thresholds are approximated for this demo; production implementation would replicate CUSUMdesign getH() Markov chain thresholds."
+    )
 
     st.subheader("CUSUM chart")
     st.plotly_chart(fig_cusum, use_container_width=True)
     st.info(cusum_signal_interpretation(n_sig1, n_sig2, start_m, end_m))
-    st.caption("X-axis: Month (time period).  •  Y-axis: CUSUM statistic based on cumulative variation between observed and expected events (national reference rate).")
+    st.caption(
+        "X-axis: Month (time period).  •  Y-axis: CUSUM statistic based on cumulative variation between observed and expected events (national reference rate)."
+    )
 
     st.subheader("Excess events (VLAD)")
     st.plotly_chart(fig_excess, use_container_width=True)
     last_excess = float(df_cu["CumExcessEvents"].iloc[-1])
     st.info(excess_events_interpretation(last_excess, start_m, end_m))
-    st.caption("X-axis: Month (time period).  •  Y-axis: Cumulative excess events (Observed − Expected) vs national reference rate.")
+    st.caption(
+        "X-axis: Month (time period).  •  Y-axis: Cumulative excess events (Observed − Expected) vs national reference rate."
+    )
 
 with tab_diag:
     st.markdown("### Distribution diagnostics")
@@ -801,11 +760,11 @@ with tab_diag:
 st.subheader("Export")
 if st.button("Create SPC JPEG export"):
     try:
-        img_bytes = fig_spc.to_image(format="jpeg", scale=2)  # requires kaleido + Chrome
+        img_bytes = fig_spc.to_image(format="jpeg", scale=2)  # requires kaleido + chrome
         st.session_state["jpeg_spc"] = img_bytes
         st.success("SPC JPEG created. Use the download button.")
     except Exception as e:
-        st.error("JPEG export needs Kaleido and Chrome. Try: pip install -U kaleido  and then: plotly_get_chrome")
+        st.error("JPEG export needs Kaleido + Chrome. Try: pip install -U kaleido  then  plotly_get_chrome")
         st.exception(e)
 
 jpeg = st.session_state.get("jpeg_spc", None)
