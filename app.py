@@ -464,6 +464,51 @@ def excess_events_interpretation(last_excess: float, start_m: pd.Timestamp, end_
         "compared to the national reference rate (cumulative difference is ~0)."
     )
 
+def render_signal_alert(n_sig1: int, n_sig2: int, start_m: pd.Timestamp, end_m: pd.Timestamp):
+    """
+    Renders a coloured alert strip above the SPC chart.
+    Red = Level 2 (99%)
+    Amber = Level 1 (95%)
+    Green = No signal
+    """
+
+    period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
+
+    if n_sig2 > 0:
+        bg = BAD
+        message = (
+            f"Level 2 signal detected ({period}). "
+            "There is 99% confidence this variation is unlikely due to chance."
+        )
+    elif n_sig1 > 0:
+        bg = AMBER
+        message = (
+            f"Level 1 signal detected ({period}). "
+            "There is 95% confidence this variation is unlikely due to chance."
+        )
+    else:
+        bg = GOOD
+        message = (
+            f"No special cause signal detected ({period}). "
+            "Variation appears consistent with common cause variation."
+        )
+
+    st.markdown(
+        f"""
+        <div style="
+            background:{bg};
+            color:white;
+            padding:12px 16px;
+            border-radius:8px;
+            font-weight:700;
+            margin-bottom:10px;
+        ">
+            {message}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 def histogram_interpretation(s: dict, start_m: pd.Timestamp, end_m: pd.Timestamp) -> str:
     period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
@@ -724,17 +769,8 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 # ---------------------------
 # Tabs: SPC / CUSUM / Diagnostics
 # ---------------------------
-tab_spc, tab_cusum, tab_diag = st.tabs(["SPC Chart", "CUSUM & Excess Events", "Diagnostics"])
 
-with tab_spc:
-    st.plotly_chart(fig_spc, use_container_width=True)
-
-with tab_cusum:
-    df_nat_full = generate_series(view="National", indicator=indicator, provider=provider)
-    df_nat = df_nat_full[(df_nat_full["Month"] >= start_m) & (df_nat_full["Month"] <= end_m)].copy()
-    nat_ref = float(df_nat["Rate"].mean()) if not df_nat.empty else float(df["Rate"].mean())
-
-    fig_cusum, fig_excess, df_cu, H1, H2, n_sig1, n_sig2 = build_cusum_vlad_and_signals(
+fig_cusum, fig_excess, df_cu, H1, H2, n_sig1, n_sig2 = build_cusum_vlad_and_signals(
         df=df,
         indicator=indicator,
         national_reference_rate=nat_ref,
@@ -742,6 +778,26 @@ with tab_cusum:
         arl_level2=100,
         seed=abs(hash(provider + indicator)) % (2**32),
     )
+tab_spc, tab_cusum, tab_diag = st.tabs(["SPC Chart", "CUSUM & Excess Events", "Diagnostics"])
+
+with tab_spc:
+
+    # --- Signal alert strip (NEW)
+    render_signal_alert(
+        n_sig1=n_sig1,
+        n_sig2=n_sig2,
+        start_m=start_m,
+        end_m=end_m
+    )
+
+    st.plotly_chart(fig_spc, use_container_width=True)
+
+with tab_cusum:
+    df_nat_full = generate_series(view="National", indicator=indicator, provider=provider)
+    df_nat = df_nat_full[(df_nat_full["Month"] >= start_m) & (df_nat_full["Month"] <= end_m)].copy()
+    nat_ref = float(df_nat["Rate"].mean()) if not df_nat.empty else float(df["Rate"].mean())
+
+    
 
     st.markdown(f"**National reference rate (used for expected events):** {nat_ref:.2f}")
     st.caption("Prototype note: thresholds are approximated for this demo; production implementation would replicate CUSUMdesign getH() Markov chain thresholds.")
