@@ -79,7 +79,7 @@ st.markdown(
       .help a:hover {{ background:#eef6ff; }}
 
       .kpis {{
-        display:grid; grid-template-columns: repeat(5, 1fr);
+        display:grid; grid-template-columns: repeat(6, 1fr);
         gap: 10px; margin-bottom: 10px;
       }}
       .kpi {{
@@ -167,6 +167,7 @@ def build_spc_figure(df, mean, ucl, lcl, show_ann=True, show_run=True):
     z2_low, z2_high = mean - 2 * sigma, mean + 2 * sigma
     z3_low, z3_high = mean - 3 * sigma, mean + 3 * sigma
 
+    # Shaded control zones
     fig.add_hrect(y0=z3_low, y1=z2_low, fillcolor=NHS_BLUE, opacity=0.04, line_width=0)
     fig.add_hrect(y0=z2_low, y1=z1_low, fillcolor=NHS_BLUE, opacity=0.06, line_width=0)
     fig.add_hrect(y0=z1_low, y1=z1_high, fillcolor=NHS_BLUE, opacity=0.08, line_width=0)
@@ -273,8 +274,8 @@ def build_cusum_vlad_and_signals(
     df: pd.DataFrame,
     indicator: str,
     national_reference_rate: float,
-    arl_level1: int = 20,    # ~95%
-    arl_level2: int = 100,   # ~99%
+    arl_level1: int = 20,   # ~95%
+    arl_level2: int = 100,  # ~99%
     seed: int = 42,
 ):
     dfx = df.copy().reset_index(drop=True)
@@ -311,6 +312,7 @@ def build_cusum_vlad_and_signals(
     sig2_set = set(sig2_idx.tolist())
     sig1_only_idx = np.array([i for i in sig1_idx if i not in sig2_set], dtype=int)
 
+    # --- CUSUM figure
     fig_cusum = go.Figure()
     fig_cusum.add_trace(
         go.Scatter(
@@ -367,6 +369,7 @@ def build_cusum_vlad_and_signals(
         font=dict(family="Inter, Arial"),
     )
 
+    # --- Excess events figure (VLAD)
     fig_excess = go.Figure()
     fig_excess.add_trace(
         go.Scatter(
@@ -432,66 +435,32 @@ def build_cusum_vlad_and_signals(
 def cusum_signal_interpretation(n_sig1: int, n_sig2: int, start_m: pd.Timestamp, end_m: pd.Timestamp) -> str:
     period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
     if n_sig2 > 0:
-        return (
-            f"CUSUM ({period}) indicates {n_sig2} month(s) crossed Level 2 (red), "
-            "meaning there is 99% confidence the signal is unlikely to have occurred by chance."
-        )
+        return f"CUSUM ({period}): {n_sig2} month(s) crossed Level 2 (red) — 99% confidence this is unlikely due to chance."
     if n_sig1 > 0:
-        return (
-            f"CUSUM ({period}) indicates {n_sig1} month(s) crossed Level 1 (amber), "
-            "meaning there is 95% confidence the signal is unlikely to have occurred by chance."
-        )
-    return (
-        f"CUSUM ({period}) indicates no months crossed Level 1 (amber) or Level 2 (red), "
-        "so no statistically significant signal was detected within the selected dates."
-    )
+        return f"CUSUM ({period}): {n_sig1} month(s) crossed Level 1 (amber) — 95% confidence this is unlikely due to chance."
+    return f"CUSUM ({period}): no months crossed Level 1 or Level 2 — no statistically significant signal detected."
 
 
 def excess_events_interpretation(last_excess: float, start_m: pd.Timestamp, end_m: pd.Timestamp) -> str:
     period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
     if last_excess > 0:
-        return (
-            f"Excess events ({period}) indicates about {last_excess:.1f} more events than expected "
-            "compared to the national reference rate (Observed − Expected is positive)."
-        )
+        return f"Excess events ({period}): about {last_excess:.1f} more events than expected vs national reference."
     if last_excess < 0:
-        return (
-            f"Excess events ({period}) indicates about {abs(last_excess):.1f} fewer events than expected "
-            "compared to the national reference rate (Observed − Expected is negative)."
-        )
-    return (
-        f"Excess events ({period}) indicates observed events match expected events overall "
-        "compared to the national reference rate (cumulative difference is ~0)."
-    )
+        return f"Excess events ({period}): about {abs(last_excess):.1f} fewer events than expected vs national reference."
+    return f"Excess events ({period}): observed events match expected overall (cumulative difference ~0)."
+
 
 def render_signal_alert(n_sig1: int, n_sig2: int, start_m: pd.Timestamp, end_m: pd.Timestamp):
-    """
-    Renders a coloured alert strip above the SPC chart.
-    Red = Level 2 (99%)
-    Amber = Level 1 (95%)
-    Green = No signal
-    """
-
     period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
-
     if n_sig2 > 0:
         bg = BAD
-        message = (
-            f"Level 2 signal detected ({period}). "
-            "There is 99% confidence this variation is unlikely due to chance."
-        )
+        message = f"Level 2 signal detected ({period}) — 99% confidence this is unlikely due to chance."
     elif n_sig1 > 0:
         bg = AMBER
-        message = (
-            f"Level 1 signal detected ({period}). "
-            "There is 95% confidence this variation is unlikely due to chance."
-        )
+        message = f"Level 1 signal detected ({period}) — 95% confidence this is unlikely due to chance."
     else:
         bg = GOOD
-        message = (
-            f"No special cause signal detected ({period}). "
-            "Variation appears consistent with common cause variation."
-        )
+        message = f"No special cause signal detected ({period}) — variation looks consistent with common cause."
 
     st.markdown(
         f"""
@@ -500,7 +469,7 @@ def render_signal_alert(n_sig1: int, n_sig2: int, start_m: pd.Timestamp, end_m: 
             color:white;
             padding:12px 16px;
             border-radius:8px;
-            font-weight:700;
+            font-weight:800;
             margin-bottom:10px;
         ">
             {message}
@@ -513,27 +482,18 @@ def render_signal_alert(n_sig1: int, n_sig2: int, start_m: pd.Timestamp, end_m: 
 def histogram_interpretation(s: dict, start_m: pd.Timestamp, end_m: pd.Timestamp) -> str:
     period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
     skew = float(s.get("skew", 0.0))
-
     if abs(skew) < 0.5:
-        return (
-            f"Across {period}, most months sit close to the typical level, with no strong pattern of spikes or dips."
-        )
-    elif skew > 0:
-        return (
-            f"Across {period}, a few higher months stand out, which may mean occasional spikes are pulling the average up."
-        )
-    else:
-        return (
-            f"Across {period}, a few lower months stand out, which may mean occasional dips are pulling the average down."
-        )
+        return f"Histogram ({period}): values cluster around the typical level; no strong skew."
+    if skew > 0:
+        return f"Histogram ({period}): a few higher months appear, suggesting occasional spikes."
+    return f"Histogram ({period}): a few lower months appear, suggesting occasional dips."
 
 
 def boxplot_interpretation(df: pd.DataFrame, start_m: pd.Timestamp, end_m: pd.Timestamp) -> str:
     period = f"{start_m.strftime('%b %Y')}–{end_m.strftime('%b %Y')}"
     y = df["Rate"].dropna().astype(float)
-
     if len(y) < 4:
-        return f"There are too few months in {period} to confidently judge spread or unusual months."
+        return f"Box plot ({period}): too few months to judge spread reliably."
 
     q1 = float(y.quantile(0.25))
     q3 = float(y.quantile(0.75))
@@ -544,14 +504,14 @@ def boxplot_interpretation(df: pd.DataFrame, start_m: pd.Timestamp, end_m: pd.Ti
     n_out = int(outliers.shape[0])
 
     if n_out == 0:
-        return f"Across {period}, month-to-month variation is consistent with no unusually extreme months."
+        return f"Box plot ({period}): spread looks consistent; no unusually extreme months."
     if n_out == 1:
-        return f"Across {period}, there is 1 unusually high/low month, which may slightly affect the overall limits."
-    return f"Across {period}, there are {n_out} unusually high/low months, which may widen the control limits."
+        return f"Box plot ({period}): 1 unusually high/low month may affect limits slightly."
+    return f"Box plot ({period}): {n_out} unusually high/low months may widen control limits."
 
 
 # ---------------------------
-# Diagnostics
+# Diagnostics visuals
 # ---------------------------
 def build_distribution_diagnostics(df):
     series = df["Rate"].dropna().astype(float)
@@ -728,7 +688,7 @@ st.markdown(
 )
 
 # ---------------------------
-# Filter by selected date range (month/year behaviour)
+# Filter by selected date range
 # ---------------------------
 start_m = pd.Timestamp(start_date).to_period("M").to_timestamp()
 end_m = pd.Timestamp(end_date).to_period("M").to_timestamp()
@@ -744,13 +704,38 @@ if df.empty:
     st.warning("No data available for the selected date range.")
     st.stop()
 
-# Build SPC
+# ---------------------------
+# Build SPC (and flags)
+# ---------------------------
 mean, ucl, lcl = spc_limits(df)
 fig_spc, df_flagged = build_spc_figure(df, mean, ucl, lcl, show_ann=show_ann, show_run=show_run)
 
 current_rate = float(df_flagged["Rate"].iloc[-1])
-any_special = bool(df_flagged["SpecialCause"].any())
-current_special = bool(df_flagged["SpecialCause"].iloc[-1])
+any_special = bool(df_flagged["SpecialCause"].any())            # any special cause in period
+current_special = bool(df_flagged["SpecialCause"].iloc[-1])     # last point special cause?
+
+# ---------------------------
+# Build CUSUM (before KPI + tabs)
+# ---------------------------
+df_nat_full = generate_series(view="National", indicator=indicator, provider=provider)
+df_nat = df_nat_full[(df_nat_full["Month"] >= start_m) & (df_nat_full["Month"] <= end_m)].copy()
+nat_ref = float(df_nat["Rate"].mean()) if not df_nat.empty else float(df["Rate"].mean())
+
+fig_cusum, fig_excess, df_cu, H1, H2, n_sig1, n_sig2 = build_cusum_vlad_and_signals(
+    df=df,
+    indicator=indicator,
+    national_reference_rate=nat_ref,
+    arl_level1=20,
+    arl_level2=100,
+    seed=abs(hash(provider + indicator)) % (2**32),
+)
+
+# ---------------------------
+# KPI strip (NOW includes Period Signal YES/NO)
+# ---------------------------
+period_signal_yesno = "YES" if any_special else "NO"
+period_signal_colour = BAD if any_special else GOOD
+period_signal_sub = "Special-cause present in selected period" if any_special else "No special-cause detected in selected period"
 
 kpi_html = f"""
 <div class="kpis">
@@ -758,47 +743,32 @@ kpi_html = f"""
   <div class="kpi"><p class="lab">Current rate</p><p class="val">{current_rate:.2f}</p><p class="sm">Latest data point</p></div>
   <div class="kpi"><p class="lab">Mean</p><p class="val">{mean:.2f}</p><p class="sm">Centre line</p></div>
   <div class="kpi"><p class="lab">UCL / LCL</p><p class="val">{ucl:.2f} / {lcl:.2f}</p><p class="sm">±3σ limits</p></div>
+
   <div class="kpi"><p class="lab">Special cause (current)</p>
     <p class="val" style="color:{BAD if current_special else GOOD};">{'YES' if current_special else 'NO'}</p>
-    <p class="sm">{'Signals present' if any_special else 'No signals detected'}</p>
+    <p class="sm">{'Current point is a signal' if current_special else 'Current point is in control'}</p>
+  </div>
+
+  <div class="kpi"><p class="lab">Signal in selected period</p>
+    <p class="val" style="color:{period_signal_colour};">{period_signal_yesno}</p>
+    <p class="sm">{period_signal_sub}</p>
   </div>
 </div>
 """
 st.markdown(kpi_html, unsafe_allow_html=True)
 
 # ---------------------------
-# Tabs: SPC / CUSUM / Diagnostics
+# Tabs
 # ---------------------------
-
-fig_cusum, fig_excess, df_cu, H1, H2, n_sig1, n_sig2 = build_cusum_vlad_and_signals(
-        df=df,
-        indicator=indicator,
-        national_reference_rate=nat_ref,
-        arl_level1=20,
-        arl_level2=100,
-        seed=abs(hash(provider + indicator)) % (2**32),
-    )
 tab_spc, tab_cusum, tab_diag = st.tabs(["SPC Chart", "CUSUM & Excess Events", "Diagnostics"])
 
 with tab_spc:
-
-    # --- Signal alert strip (NEW)
-    render_signal_alert(
-        n_sig1=n_sig1,
-        n_sig2=n_sig2,
-        start_m=start_m,
-        end_m=end_m
-    )
-
+    # Alert strip based on CUSUM thresholds (level 1/2) — you can keep this,
+    # and the new KPI covers SPC "signal in period".
+    render_signal_alert(n_sig1=n_sig1, n_sig2=n_sig2, start_m=start_m, end_m=end_m)
     st.plotly_chart(fig_spc, use_container_width=True)
 
 with tab_cusum:
-    df_nat_full = generate_series(view="National", indicator=indicator, provider=provider)
-    df_nat = df_nat_full[(df_nat_full["Month"] >= start_m) & (df_nat_full["Month"] <= end_m)].copy()
-    nat_ref = float(df_nat["Rate"].mean()) if not df_nat.empty else float(df["Rate"].mean())
-
-    
-
     st.markdown(f"**National reference rate (used for expected events):** {nat_ref:.2f}")
     st.caption("Prototype note: thresholds are approximated for this demo; production implementation would replicate CUSUMdesign getH() Markov chain thresholds.")
 
@@ -825,18 +795,17 @@ with tab_diag:
         st.plotly_chart(box_fig, use_container_width=True)
         st.info(boxplot_interpretation(df, start_m, end_m))
 
-
 # ---------------------------
 # Export (SPC chart JPEG)
 # ---------------------------
 st.subheader("Export")
 if st.button("Create SPC JPEG export"):
     try:
-        img_bytes = fig_spc.to_image(format="jpeg", scale=2)  # requires kaleido
+        img_bytes = fig_spc.to_image(format="jpeg", scale=2)  # requires kaleido + Chrome
         st.session_state["jpeg_spc"] = img_bytes
         st.success("SPC JPEG created. Use the download button.")
     except Exception as e:
-        st.error("JPEG export needs Kaleido. Install it with: pip install -U kaleido")
+        st.error("JPEG export needs Kaleido and Chrome. Try: pip install -U kaleido  and then: plotly_get_chrome")
         st.exception(e)
 
 jpeg = st.session_state.get("jpeg_spc", None)
